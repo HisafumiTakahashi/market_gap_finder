@@ -1,216 +1,73 @@
-"""
-機会スコア算出モジュール
-
-「需要が高いにもかかわらず競合が少ない」エリア×ジャンルの組み合わせに
-高いスコアを付与し、出店候補をランキングする。
-
-スコア設計
-----------
-demand_score       = normalize(口コミ数 × 平均評価 × 混雑度インデックス)
-competitor_density = 競合店舗数 / 人口1万人
-opportunity_score  = w_demand  * demand_score / (competitor_density + 0.01)
-                   * w_population * population_density_norm
-                   * w_land     * (1 / (land_price_norm + ε))
-最終的に MinMaxScaler で 0-1 に正規化。
-"""
-
 from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pandas as pd
-
-from config import settings
 
 logger = logging.getLogger(__name__)
 
-_LAPLACE = 0.01   # 競合密度のラプラス補正
-_EPSILON = 1e-6   # 地価ゼロ除算防止
+_COMPETITOR_OFFSET = 0.1
 
-
-# ──────────────────────────────────────
-# ユーティリティ
-# ──────────────────────────────────────
 
 def _normalize(series: pd.Series) -> pd.Series:
-    """MinMax 正規化（0–1）。全値が同一の場合は 0.0 で埋める。"""
     values = pd.to_numeric(series, errors="coerce").fillna(0.0)
-    min_v, max_v = float(values.min()), float(values.max())
-    if max_v <= min_v:
+    if values.empty:
+        return pd.Series(dtype=float, index=series.index)
+
+    min_value = float(values.min())
+    max_value = float(values.max())
+    if min_value == max_value:
         return pd.Series(0.0, index=series.index, dtype=float)
-    return (values - min_v) / (max_v - min_v)
 
+    return ((values - min_value) / (max_value - min_value)).astype(float)
 
-def _first_numeric(
-    df: pd.DataFrame,
-    candidates: tuple[str, ...],
-    default: float = 0.0,
-) -> pd.Series:
-    """候補カラムを順番に探して数値 Series を返す。見つからなければ default で埋める。"""
-    for col in candidates:
-        if col in df.columns:
-            return pd.to_numeric(df[col], errors="coerce").fillna(default)
-    return pd.Series(default, index=df.index, dtype=float)
-
-
-# ──────────────────────────────────────
-# 因子算出
-# ──────────────────────────────────────
 
 def compute_demand_score(df: pd.DataFrame) -> pd.Series:
-    """需要スコアを算出する（0-1 正規化済み）。
+    logger.info("Computing demand score for %s rows", len(df))
 
-    demand_score = normalize(口コミ数 × 平均評価 × 混雑度インデックス)
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        エリア×ジャンル集約済みデータ
-
-    Returns
-    -------
-    pd.Series
-        正規化された demand_score (0–1), 名前='demand_score'
-    """
     if df.empty:
         return pd.Series(dtype=float, index=df.index, name="demand_score")
 
-    review_count = _first_numeric(df, ("review_count", "user_ratings_total", "reviews"), 0.0)
-    rating = _first_numeric(df, ("avg_rating", "rating", "score"), 0.0)
-    congestion = _first_numeric(df, ("congestion_index", "congestion", "busy_level"), 1.0)
-
-    raw = review_count * rating * congestion
-    return _normalize(raw).rename("demand_score")
-
-
-def compute_competitor_density(df: pd.DataFrame) -> pd.Series:
-    """競合密度を算出する（競合店舗数 / 人口1万人）。
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        エリア×ジャンル集約済みデータ
-
-    Returns
-    -------
-    pd.Series
-        competitor_density（単位: 店/万人）, 名前='competitor_density'
-    """
-    if df.empty:
-        return pd.Series(dtype=float, index=df.index, name="competitor_density")
-
-    store_count = _first_numeric(
-        df, ("restaurant_count", "store_count", "count", "n_restaurants"), 0.0
+    mesh_total_count = (
+        pd.to_numeric(df["restaurant_count"], errors="coerce")
+        .fillna(0.0)
+        .groupby(df["mesh_code"])
+        .transform("sum")
     )
+    demand_raw = mesh_total_count
 
-    # population_10k があればそのまま使用、population（生値）の場合は1万人単位に変換
-    if "population_10k" in df.columns:
-        pop_10k = pd.to_numeric(df["population_10k"], errors="coerce").fillna(1.0).clip(lower=_EPSILON)
-    elif "population" in df.columns:
-        pop_10k = (pd.to_numeric(df["population"], errors="coerce").fillna(10_000.0) / 10_000.0).clip(lower=_EPSILON)
-    else:
-        pop_10k = pd.Series(1.0, index=df.index, dtype=float)
-
-    return (store_count / pop_10k).rename("competitor_density")
+    return _normalize(demand_raw).rename("demand_score")
 
 
-# ──────────────────────────────────────
-# 機会スコア
-# ──────────────────────────────────────
-
-def compute_opportunity_score(
-    df: pd.DataFrame,
-    w_demand: float | None = None,
-    w_competitor: float | None = None,
-    w_population: float | None = None,
-    w_land_price: float | None = None,
-) -> pd.DataFrame:
-    """機会スコアを算出して DataFrame に付与する。
-
-    opportunity_score_raw = w_demand * demand_score / (competitor_density + 0.01)
-                          * w_population * population_density_norm
-                          * w_land_price * (1 / (land_price_norm + ε))
-
-    最終スコアは MinMaxScaler で 0-1 に正規化される。
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        エリア×ジャンル集約済みデータ
-    w_demand : float | None
-        需要スコアの線形重み（None なら settings.WEIGHT_DEMAND）
-    w_competitor : float | None
-        競合密度の線形重み（None なら settings.WEIGHT_COMPETITOR）
-    w_population : float | None
-        人口密度の線形重み（None なら settings.WEIGHT_POPULATION）
-    w_land_price : float | None
-        地価逆数の線形重み（None なら settings.WEIGHT_LAND_PRICE）
-
-    Returns
-    -------
-    pd.DataFrame
-        中間スコアカラムと opportunity_score カラムが追加されたデータ
-    """
-    w_demand = float(getattr(settings, "WEIGHT_DEMAND", 1.0)) if w_demand is None else float(w_demand)
-    w_competitor = float(getattr(settings, "WEIGHT_COMPETITOR", 1.0)) if w_competitor is None else float(w_competitor)
-    w_population = float(getattr(settings, "WEIGHT_POPULATION", 1.0)) if w_population is None else float(w_population)
-    w_land_price = float(getattr(settings, "WEIGHT_LAND_PRICE", 1.0)) if w_land_price is None else float(w_land_price)
+def compute_opportunity_score(df: pd.DataFrame) -> pd.DataFrame:
+    logger.info("Computing opportunity score for %s rows", len(df))
 
     out = df.copy()
+    if out.empty:
+        out["demand_score"] = pd.Series(dtype=float, index=out.index)
+        out["competitor_density"] = pd.Series(dtype=float, index=out.index)
+        out["opportunity_score"] = pd.Series(dtype=float, index=out.index)
+        return out
 
     demand_score = compute_demand_score(out)
-    competitor_density = compute_competitor_density(out)
-    pop_density_norm = _normalize(
-        _first_numeric(out, ("population_density", "pop_density", "population_10k", "population"), 0.0)
-    )
-    land_price_norm = _normalize(
-        _first_numeric(out, ("land_price", "land_price_index", "地価"), 0.0)
-    )
+    competitor_density = pd.to_numeric(
+        out["restaurant_count"], errors="coerce"
+    ).fillna(0.0)
+    opportunity_raw = demand_score / (competitor_density + _COMPETITOR_OFFSET)
 
     out["demand_score"] = demand_score
     out["competitor_density"] = competitor_density
-    out["population_density_norm"] = pop_density_norm
-    out["land_price_norm"] = land_price_norm
-
-    raw_score = (
-        w_demand * demand_score
-        / (competitor_density + _LAPLACE)
-        * w_population * pop_density_norm
-        * w_land_price * (1.0 / (land_price_norm + _EPSILON))
-    )
-
-    out["opportunity_score"] = _normalize(raw_score)
+    out["opportunity_score"] = _normalize(opportunity_raw)
     return out
 
 
-# ──────────────────────────────────────
-# ランキング・推薦
-# ──────────────────────────────────────
-
-def rank_opportunities(
-    df: pd.DataFrame,
-    top_n: int = 20,
-) -> pd.DataFrame:
-    """機会スコア上位の出店候補を返す。
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        opportunity_score 付きデータ
-    top_n : int
-        上位何件を返すか（デフォルト 20）
-
-    Returns
-    -------
-    pd.DataFrame
-        上位 top_n 件のランキング（インデックスをリセット済み）
-    """
+def rank_opportunities(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
     if "opportunity_score" not in df.columns:
-        raise KeyError("opportunity_score カラムが必要です")
+        raise KeyError("opportunity_score column is required")
     if top_n <= 0:
         return df.iloc[0:0].copy()
 
+    logger.info("Ranking top %s opportunities from %s rows", top_n, len(df))
     return (
         df.sort_values("opportunity_score", ascending=False)
         .head(top_n)
@@ -219,68 +76,62 @@ def rank_opportunities(
 
 
 def generate_reason(row: pd.Series) -> str:
-    """1件の推薦行から根拠テキストを自動生成する。
+    mesh_code = str(row.get("mesh_code", "unknown_mesh"))
+    unified_genre = str(row.get("unified_genre", "unknown_genre"))
+    opportunity_score = float(
+        pd.to_numeric(pd.Series([row.get("opportunity_score", 0.0)]), errors="coerce")
+        .fillna(0.0)
+        .iloc[0]
+    )
+    demand_score = float(
+        pd.to_numeric(pd.Series([row.get("demand_score", 0.0)]), errors="coerce")
+        .fillna(0.0)
+        .iloc[0]
+    )
+    competitor_density = int(
+        pd.to_numeric(
+            pd.Series([row.get("competitor_density", row.get("restaurant_count", 0))]),
+            errors="coerce",
+        )
+        .fillna(0)
+        .iloc[0]
+    )
 
-    Parameters
-    ----------
-    row : pd.Series
-        rank_opportunities の各行
+    if demand_score >= 0.7:
+        demand_label = "\u9ad8\u3044"
+    elif demand_score >= 0.4:
+        demand_label = "\u4e2d\u7a0b\u5ea6"
+    else:
+        demand_label = "\u4f4e\u3044"
 
-    Returns
-    -------
-    str
-        日本語の根拠テキスト
-    """
-    area = row.get("area", row.get("mesh_id", "対象エリア"))
-    genre = row.get("genre", row.get("genre_code", "飲食"))
-    score = row.get("opportunity_score", 0.0)
+    if competitor_density <= 3:
+        competitor_label = "\u5c11\u306a\u3044"
+    elif competitor_density <= 10:
+        competitor_label = "\u4e2d\u7a0b\u5ea6"
+    else:
+        competitor_label = "\u591a\u3044"
 
-    parts = [f"【{area} × {genre}】 機会スコア {score:.3f}"]
-
-    demand = row.get("demand_score")
-    if demand is not None:
-        level = "非常に高い" if demand >= 0.7 else "中程度" if demand >= 0.4 else "低い"
-        parts.append(f"需要: {level}（{demand:.2f}）")
-
-    density = row.get("competitor_density")
-    if density is not None:
-        level = "少ない" if density < 1.0 else "中程度" if density < 3.0 else "多い"
-        parts.append(f"競合: {level}（{density:.2f}店/万人）")
-
-    pop = row.get("population_density_norm")
-    if pop is not None:
-        level = "高密度" if pop >= 0.7 else "中密度" if pop >= 0.4 else "低密度"
-        parts.append(f"人口: {level}（正規化値 {pop:.2f}）")
-
-    land = row.get("land_price_norm")
-    if land is not None:
-        level = "低コスト" if land < 0.4 else "中程度" if land < 0.7 else "高コスト"
-        parts.append(f"地価: {level}（正規化値 {land:.2f}）")
-
-    return " / ".join(parts)
+    return (
+        f"\u3010{mesh_code} \u00d7 {unified_genre}\u3011"
+        f"\u6a5f\u4f1a\u30b9\u30b3\u30a2 {opportunity_score:.3f} / "
+        f"\u9700\u8981: {demand_label}({demand_score:.2f}) / "
+        f"\u7af6\u5408: {competitor_label}({competitor_density}\u5e97)"
+    )
 
 
-def get_top_recommendations(
-    df: pd.DataFrame,
-    top_n: int = 20,
-) -> pd.DataFrame:
-    """機会スコア上位 top_n 件に根拠テキストを付与して返す。
+def get_top_recommendations(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
+    logger.info("Generating top %s recommendations", top_n)
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        opportunity_score 付きデータ
-    top_n : int
-        上位何件を返すか（デフォルト 20）
-
-    Returns
-    -------
-    pd.DataFrame
-        上位 top_n 件 + reason カラム
-    """
     ranked = rank_opportunities(df, top_n=top_n)
     if ranked.empty:
-        ranked["reason"] = pd.Series(dtype=str)
+        ranked["reason"] = pd.Series(dtype=str, index=ranked.index)
         return ranked
+
     ranked["reason"] = ranked.apply(generate_reason, axis=1)
     return ranked
+
+
+def run_scoring(aggregated_df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
+    logger.info("Running scoring pipeline for %s rows", len(aggregated_df))
+    scored_df = compute_opportunity_score(aggregated_df)
+    return get_top_recommendations(scored_df, top_n=top_n)

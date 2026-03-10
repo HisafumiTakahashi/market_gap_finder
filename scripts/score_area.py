@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""前処理済みエリアデータのスコアリングを CLI から実行するスクリプト。"""
+
 from __future__ import annotations
 
 import argparse
@@ -12,6 +14,11 @@ from src.analyze.scoring import run_scoring
 
 
 def parse_args() -> argparse.Namespace:
+    """スコアリング対象タグと上位件数の引数を解析する。
+
+    Returns:
+        入力タグと `top_n` を保持した名前空間。
+    """
     parser = argparse.ArgumentParser(description="Score aggregated area data.")
     parser.add_argument("--tag", type=str, default="result", help="Input/output file tag.")
     parser.add_argument("--top-n", type=int, default=20, help="Number of top areas to score.")
@@ -19,6 +26,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """スコアリングを実行し、結果 CSV を出力して終了コードを返す。
+
+    Returns:
+        正常終了時は `0`、例外発生時は `1`。
+    """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = parse_args()
 

@@ -1,3 +1,9 @@
+"""Hotpepper API を用いたエリア収集処理を提供するモジュール。
+
+指定された緯度経度範囲をメッシュ状に走査し、各格子点ごとに店舗情報を取得して
+単一の CSV に集約する。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +22,21 @@ def generate_mesh(
     lng_min: float,
     lng_max: float,
 ) -> list[tuple[float, float]]:
-    """指定範囲をメッシュ化し、格子点の座標を返す。"""
+    """指定した緯度経度範囲の格子点一覧を生成する。
+
+    緯度・経度の最小値と最大値の順序が逆で渡された場合は内部で補正し、
+    設定値 `settings.MESH_LAT_STEP` と `settings.MESH_LON_STEP` に従って
+    範囲全体を走査した座標ペアを返す。
+
+    Args:
+        lat_min: 対象範囲の最小緯度。
+        lat_max: 対象範囲の最大緯度。
+        lng_min: 対象範囲の最小経度。
+        lng_max: 対象範囲の最大経度。
+
+    Returns:
+        各メッシュの中心として扱う緯度・経度タプルの一覧。
+    """
     if lat_min > lat_max:
         lat_min, lat_max = lat_max, lat_min
     if lng_min > lng_max:
@@ -42,6 +62,22 @@ def run_collection(
     lng_max: float,
     output_tag: str = "result",
 ) -> pd.DataFrame:
+    """指定範囲の Hotpepper データ収集を実行して CSV に保存する。
+
+    生成したメッシュごとに Hotpepper から全ページを取得し、取得結果を
+    DataFrame に変換して連結する。`id` 列が存在する場合は重複店舗を除外し、
+    `RAW_DATA_DIR` 配下に `{output_tag}_hotpepper.csv` として保存する。
+
+    Args:
+        lat_min: 収集範囲の最小緯度。
+        lat_max: 収集範囲の最大緯度。
+        lng_min: 収集範囲の最小経度。
+        lng_max: 収集範囲の最大経度。
+        output_tag: 保存ファイル名に付与するタグ。
+
+    Returns:
+        収集・重複除去後の店舗一覧 DataFrame。
+    """
     mesh_points = generate_mesh(
         lat_min=lat_min,
         lat_max=lat_max,

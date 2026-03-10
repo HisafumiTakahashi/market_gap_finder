@@ -1,3 +1,5 @@
+"""メッシュ座標を地名へ逆ジオコーディングするユーティリティ。"""
+
 from __future__ import annotations
 
 import json
@@ -15,6 +17,14 @@ _PLACE_KEYS = ("quarter", "neighbourhood", "suburb", "city_district", "town", "c
 
 
 def _load_cache(cache_path: Path) -> dict[str, str]:
+    """逆ジオコーディング結果の JSON キャッシュを読み込む。
+
+    Args:
+        cache_path: キャッシュファイルのパス。
+
+    Returns:
+        メッシュコードをキー、地名を値とする辞書。読込失敗時は空辞書。
+    """
     if not cache_path.exists():
         return {}
 
@@ -33,6 +43,12 @@ def _load_cache(cache_path: Path) -> dict[str, str]:
 
 
 def _save_cache(cache_path: Path, cache: dict[str, str]) -> None:
+    """逆ジオコーディング結果のキャッシュを JSON として保存する。
+
+    Args:
+        cache_path: 保存先キャッシュファイルのパス。
+        cache: 保存するキャッシュ辞書。
+    """
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         with cache_path.open("w", encoding="utf-8") as f:
@@ -42,6 +58,14 @@ def _save_cache(cache_path: Path, cache: dict[str, str]) -> None:
 
 
 def _extract_place_name(payload: dict[str, Any]) -> str:
+    """Nominatim のレスポンスから代表的な地名を抽出する。
+
+    Args:
+        payload: 逆ジオコーディング API のレスポンス JSON。
+
+    Returns:
+        優先順位付きの住所キーから見つかった地名。見つからない場合は `unknown`。
+    """
     address = payload.get("address", {})
     if not isinstance(address, dict):
         return "unknown"
@@ -55,6 +79,18 @@ def _extract_place_name(payload: dict[str, Any]) -> str:
 
 
 def _reverse_geocode(lat: float, lng: float) -> str:
+    """Nominatim API を使って単一点の地名を取得する。
+
+    Args:
+        lat: 対象地点の緯度。
+        lng: 対象地点の経度。
+
+    Returns:
+        取得した地名文字列。
+
+    Raises:
+        requests.RequestException: HTTP 通信またはステータス検証に失敗した場合。
+    """
     response = requests.get(
         _NOMINATIM_URL,
         params={
@@ -72,6 +108,22 @@ def _reverse_geocode(lat: float, lng: float) -> str:
 
 
 def reverse_geocode_mesh(df: pd.DataFrame, cache_path: Path | None = None) -> pd.DataFrame:
+    """DataFrame 内のメッシュコードに地名列を付与する。
+
+    重複しないメッシュごとに逆ジオコーディングを実行し、結果を `place_name`
+    列として元の DataFrame に結合する。キャッシュファイルが指定されている場合は
+    既存結果を再利用し、新規結果を保存する。
+
+    Args:
+        df: `mesh_code`、`lat`、`lng` 列を含む DataFrame。
+        cache_path: JSON キャッシュの保存先。`None` の場合はキャッシュしない。
+
+    Returns:
+        `place_name` 列を追加した DataFrame のコピー。
+
+    Raises:
+        KeyError: 必須列が不足している場合。
+    """
     required_columns = {"mesh_code", "lat", "lng"}
     missing_columns = required_columns - set(df.columns)
     if missing_columns:

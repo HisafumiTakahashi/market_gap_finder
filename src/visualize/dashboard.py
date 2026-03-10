@@ -1,3 +1,5 @@
+"""市場ギャップ可視化用の地図と Dash アプリを提供するモジュール。"""
+
 from __future__ import annotations
 
 import logging
@@ -19,6 +21,14 @@ DEFAULT_ZOOM_START = 12
 
 
 def _coerce_map_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """地図描画用に緯度経度列を数値化し、欠損行を除外する。
+
+    Args:
+        df: `lat` と `lng` を含む可能性がある DataFrame。
+
+    Returns:
+        緯度経度を数値化し、描画不能な行を除いた DataFrame のコピー。
+    """
     if df.empty:
         return df.copy()
 
@@ -33,6 +43,16 @@ def _resolve_map_center(
     fallback_lat: float = DEFAULT_CENTER_LAT,
     fallback_lng: float = DEFAULT_CENTER_LNG,
 ) -> tuple[float, float]:
+    """DataFrame の平均座標から地図中心を決定する。
+
+    Args:
+        df: 描画対象の DataFrame。
+        fallback_lat: データが空の場合に使う緯度。
+        fallback_lng: データが空の場合に使う経度。
+
+    Returns:
+        地図中心として使う緯度・経度タプル。
+    """
     if df.empty:
         return fallback_lat, fallback_lng
 
@@ -45,6 +65,19 @@ def create_score_heatmap(
     center_lng: float = DEFAULT_CENTER_LNG,
     zoom_start: int = DEFAULT_ZOOM_START,
 ) -> folium.Map:
+    """機会スコアを重みとしたヒートマップを生成する。
+
+    `opportunity_score` 列が存在しない場合はすべての地点を同一重みで描画する。
+
+    Args:
+        df: 描画対象 DataFrame。
+        center_lat: 初期中心緯度。
+        center_lng: 初期中心経度。
+        zoom_start: 初期ズームレベル。
+
+    Returns:
+        生成した `folium.Map` オブジェクト。
+    """
     map_obj = folium.Map(
         location=[center_lat, center_lng],
         zoom_start=zoom_start,
@@ -73,6 +106,17 @@ def create_score_heatmap(
 
 
 def create_marker_map(df: pd.DataFrame, top_n: int = 20) -> folium.Map:
+    """上位候補にマーカーを配置した地図を生成する。
+
+    機会スコアの高い順に最大 `top_n` 件を抽出し、ポップアップに主要指標を表示する。
+
+    Args:
+        df: 描画対象 DataFrame。
+        top_n: マーカー表示する上位件数。
+
+    Returns:
+        生成した `folium.Map` オブジェクト。
+    """
     plot_df = _coerce_map_frame(df)
     if "opportunity_score" not in plot_df.columns:
         plot_df = plot_df.copy()
@@ -138,6 +182,12 @@ def create_marker_map(df: pd.DataFrame, top_n: int = 20) -> folium.Map:
 
 
 def save_map(map_obj: folium.Map, filename: str) -> None:
+    """`folium.Map` を HTML ファイルとして保存する。
+
+    Args:
+        map_obj: 保存対象の地図オブジェクト。
+        filename: 出力先 HTML ファイル名またはパス。
+    """
     output_path = Path(filename)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     map_obj.save(str(output_path))
@@ -145,6 +195,15 @@ def save_map(map_obj: folium.Map, filename: str) -> None:
 
 
 def _load_and_score(tag: str = "result", top_n: int = 20) -> pd.DataFrame:
+    """集計済み CSV を読み込み、可視化用のスコア列を付与する。
+
+    Args:
+        tag: 対象 CSV のタグ。
+        top_n: 呼び出し互換性のため受け取るが、この関数内では使用しない。
+
+    Returns:
+        スコアリング済み DataFrame。読み込みや計算に失敗した場合は空 DataFrame。
+    """
     del top_n
 
     csv_path = settings.PROCESSED_DATA_DIR / f"{tag}_aggregated.csv"
@@ -160,6 +219,14 @@ def _load_and_score(tag: str = "result", top_n: int = 20) -> pd.DataFrame:
 
 
 def build_dash_app(tag: str = "result") -> object:
+    """市場ギャップ可視化用の Dash アプリを構築する。
+
+    Args:
+        tag: 読み込む集計済み CSV のタグ。
+
+    Returns:
+        レイアウトとコールバックを設定済みの Dash アプリケーション。
+    """
     data = _load_and_score(tag=tag)
     genre_options = [{"label": "All", "value": "__all__"}]
     if "unified_genre" in data.columns:
@@ -235,6 +302,7 @@ def build_dash_app(tag: str = "result") -> object:
         Input("map-mode", "value"),
     )
     def _update_map(selected_genre: str, top_n: int, map_mode: str) -> str:
+        """UI の選択状態に応じて描画用地図 HTML を更新する。"""
         filtered_df = data.copy()
         if (
             selected_genre
@@ -262,6 +330,12 @@ def build_dash_app(tag: str = "result") -> object:
 
 
 def run_dashboard(host: str = "127.0.0.1", port: int = 8050) -> None:
+    """Dash ダッシュボードを起動する。
+
+    Args:
+        host: バインドするホスト名または IP アドレス。
+        port: リッスンするポート番号。
+    """
     app = build_dash_app()
     if hasattr(app, "run_server"):
         app.run_server(host=host, port=port, debug=False)

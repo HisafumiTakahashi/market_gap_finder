@@ -1,3 +1,9 @@
+"""市場機会スコアの算出と推薦生成を行うモジュール。
+
+メッシュ単位に集計された店舗データから需要スコア、競合密度、機会スコアを計算し、
+上位候補に対して説明文を付与する。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -10,6 +16,16 @@ _COMPETITOR_OFFSET = 0.1
 
 
 def _normalize(series: pd.Series) -> pd.Series:
+    """数値系列を 0 から 1 の範囲へ正規化する。
+
+    欠損値や非数値は 0 として扱い、全値が同一の場合はすべて 0 を返す。
+
+    Args:
+        series: 正規化対象の系列。
+
+    Returns:
+        0 以上 1 以下に正規化された浮動小数点系列。
+    """
     values = pd.to_numeric(series, errors="coerce").fillna(0.0)
     if values.empty:
         return pd.Series(dtype=float, index=series.index)
@@ -23,6 +39,17 @@ def _normalize(series: pd.Series) -> pd.Series:
 
 
 def compute_demand_score(df: pd.DataFrame) -> pd.Series:
+    """メッシュ全体の店舗数に基づく需要スコアを計算する。
+
+    同一メッシュ内の `restaurant_count` を合計し、その値を正規化して
+    `demand_score` として返す。
+
+    Args:
+        df: `mesh_code` と `restaurant_count` を含む集計済み DataFrame。
+
+    Returns:
+        元のインデックスに揃えた需要スコア系列。
+    """
     logger.info("Computing demand score for %s rows", len(df))
 
     if df.empty:
@@ -40,6 +67,18 @@ def compute_demand_score(df: pd.DataFrame) -> pd.Series:
 
 
 def compute_opportunity_score(df: pd.DataFrame) -> pd.DataFrame:
+    """需要と競合密度から機会スコアを算出する。
+
+    需要スコアを計算し、ジャンル別の競合店舗数で割ることで生の機会値を作成する。
+    その後、0 から 1 の範囲に再正規化して `opportunity_score` 列へ格納する。
+
+    Args:
+        df: 集計済み店舗データ。
+
+    Returns:
+        `demand_score`、`competitor_density`、`opportunity_score` を追加した
+        DataFrame のコピー。
+    """
     logger.info("Computing opportunity score for %s rows", len(df))
 
     out = df.copy()
@@ -62,6 +101,18 @@ def compute_opportunity_score(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def rank_opportunities(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
+    """機会スコアの高い候補を上位順に返す。
+
+    Args:
+        df: `opportunity_score` 列を含む DataFrame。
+        top_n: 返却する上位件数。
+
+    Returns:
+        機会スコア降順に並べた先頭 `top_n` 件の DataFrame。
+
+    Raises:
+        KeyError: `opportunity_score` 列が存在しない場合。
+    """
     if "opportunity_score" not in df.columns:
         raise KeyError("opportunity_score column is required")
     if top_n <= 0:
@@ -76,6 +127,17 @@ def rank_opportunities(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
 
 
 def generate_reason(row: pd.Series) -> str:
+    """単一候補の機会スコア説明文を生成する。
+
+    需要スコアと競合密度をしきい値でラベル化し、メッシュコードとジャンル名を
+    含む人間向けの要約文字列を返す。
+
+    Args:
+        row: 推薦候補 1 行分の系列。
+
+    Returns:
+        推薦理由を表す日本語文字列。
+    """
     mesh_code = str(row.get("mesh_code", "unknown_mesh"))
     unified_genre = str(row.get("unified_genre", "unknown_genre"))
     opportunity_score = float(
@@ -98,28 +160,37 @@ def generate_reason(row: pd.Series) -> str:
     )
 
     if demand_score >= 0.7:
-        demand_label = "\u9ad8\u3044"
+        demand_label = "高い"
     elif demand_score >= 0.4:
-        demand_label = "\u4e2d\u7a0b\u5ea6"
+        demand_label = "中程度"
     else:
-        demand_label = "\u4f4e\u3044"
+        demand_label = "低い"
 
     if competitor_density <= 3:
-        competitor_label = "\u5c11\u306a\u3044"
+        competitor_label = "少ない"
     elif competitor_density <= 10:
-        competitor_label = "\u4e2d\u7a0b\u5ea6"
+        competitor_label = "中程度"
     else:
-        competitor_label = "\u591a\u3044"
+        competitor_label = "多い"
 
     return (
-        f"\u3010{mesh_code} \u00d7 {unified_genre}\u3011"
-        f"\u6a5f\u4f1a\u30b9\u30b3\u30a2 {opportunity_score:.3f} / "
-        f"\u9700\u8981: {demand_label}({demand_score:.2f}) / "
-        f"\u7af6\u5408: {competitor_label}({competitor_density}\u5e97)"
+        f"【{mesh_code} × {unified_genre}】"
+        f"機会スコア {opportunity_score:.3f} / "
+        f"需要: {demand_label}({demand_score:.2f}) / "
+        f"競合: {competitor_label}({competitor_density}店)"
     )
 
 
 def get_top_recommendations(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
+    """上位候補を抽出し、推薦理由を付与して返す。
+
+    Args:
+        df: スコア計算済み DataFrame。
+        top_n: 取得する上位件数。
+
+    Returns:
+        上位候補に `reason` 列を追加した DataFrame。
+    """
     logger.info("Generating top %s recommendations", top_n)
 
     ranked = rank_opportunities(df, top_n=top_n)
@@ -132,6 +203,15 @@ def get_top_recommendations(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
 
 
 def run_scoring(aggregated_df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
+    """スコアリングと推薦生成をまとめて実行する。
+
+    Args:
+        aggregated_df: メッシュ・ジャンル単位に集計済みの DataFrame。
+        top_n: 返却する上位推薦件数。
+
+    Returns:
+        機会スコア計算済みかつ上位推薦に絞り込んだ DataFrame。
+    """
     logger.info("Running scoring pipeline for %s rows", len(aggregated_df))
     scored_df = compute_opportunity_score(aggregated_df)
     return get_top_recommendations(scored_df, top_n=top_n)

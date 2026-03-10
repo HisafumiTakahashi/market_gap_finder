@@ -1,3 +1,9 @@
+"""スコアリング結果のバックテストを行うモジュール。
+
+過去の開店データを学習期間と評価期間に分け、各時点で算出した機会スコアが
+実際の開店実績とどの程度整合するかを定量評価する。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -15,10 +21,30 @@ _REVIEW_COLUMN_CANDIDATES = ("total_reviews", "review_count", "user_ratings_tota
 
 
 def _find_first_column(df: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
+    """候補列名のうち DataFrame に最初に存在する列名を返す。
+
+    Args:
+        df: 対象 DataFrame。
+        candidates: 優先順に並べた列名候補。
+
+    Returns:
+        見つかった列名。存在しない場合は `None`。
+    """
     return next((column for column in candidates if column in df.columns), None)
 
 
 def _normalize_lat_lng(df: pd.DataFrame) -> pd.DataFrame:
+    """緯度経度列名を `lat` / `lng` に正規化する。
+
+    `latitude` や `longitude`、`lon` といった別名の列が存在する場合に、
+    後続処理で扱いやすい列名へ統一する。
+
+    Args:
+        df: 緯度経度に関する列を含む可能性がある DataFrame。
+
+    Returns:
+        列名を正規化した DataFrame のコピー。
+    """
     normalized = df.copy()
 
     if "lat" not in normalized.columns and "latitude" in normalized.columns:
@@ -38,6 +64,16 @@ def _get_numeric_series(
     candidates: tuple[str, ...],
     default: float = 0.0,
 ) -> pd.Series:
+    """候補列から数値系列を取得し、なければ既定値系列を返す。
+
+    Args:
+        df: 対象 DataFrame。
+        candidates: 優先順に並べた列名候補。
+        default: 列が存在しない場合や欠損値に用いる既定値。
+
+    Returns:
+        数値化済みの系列。
+    """
     column = _find_first_column(df, candidates)
     if column is None:
         return pd.Series(default, index=df.index, dtype=float)
@@ -45,6 +81,17 @@ def _get_numeric_series(
 
 
 def _aggregate_training_data(df: pd.DataFrame) -> pd.DataFrame:
+    """学習用の開店履歴をメッシュ・ジャンル単位に集約する。
+
+    評価点数やレビュー数の候補列を吸収しつつ、スコアリング関数が期待する
+    入力形式へ変換する。
+
+    Args:
+        df: 学習期間に属する開店履歴 DataFrame。
+
+    Returns:
+        スコアリング用の集計済み DataFrame。
+    """
     if df.empty:
         return pd.DataFrame(
             columns=[
@@ -88,6 +135,20 @@ def _aggregate_training_data(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_historical_openings(filepath: str) -> pd.DataFrame:
+    """過去の開店履歴 CSV を読み込み、分析用に整形する。
+
+    日付列候補から開店日を特定して日時型へ変換し、無効な日付を持つ行を除外する。
+    その後、ジャンル正規化とメッシュコード付与を実施する。
+
+    Args:
+        filepath: 開店履歴 CSV のパス。
+
+    Returns:
+        前処理済みの開店履歴 DataFrame。
+
+    Raises:
+        KeyError: 開店日を表す列が存在しない場合。
+    """
     df = pd.read_csv(filepath)
     date_column = _find_first_column(df, _DATE_COLUMN_CANDIDATES)
     if date_column is None:
@@ -105,6 +166,18 @@ def load_historical_openings(filepath: str) -> pd.DataFrame:
 
 
 def simulate_scoring_at_date(target_date: str, df_aggregated: pd.DataFrame) -> pd.DataFrame:
+    """指定日時点の情報だけを使って機会スコアを再計算する。
+
+    `snapshot_date` 列が存在する場合は対象日時以前の行に限定し、その状態で
+    スコアリングを実行して `target_date` 列を付与する。
+
+    Args:
+        target_date: 評価基準日を表す文字列。
+        df_aggregated: スコアリング対象の集計済み DataFrame。
+
+    Returns:
+        指定日時点でのスコア計算結果。
+    """
     target_ts = pd.to_datetime(target_date).normalize()
     scoring_input = df_aggregated.copy()
 
@@ -121,6 +194,18 @@ def simulate_scoring_at_date(target_date: str, df_aggregated: pd.DataFrame) -> p
 
 
 def evaluate_accuracy(scored_df: pd.DataFrame, actuals_df: pd.DataFrame) -> dict[str, float]:
+    """スコア結果と実績開店数を比較して評価指標を算出する。
+
+    メッシュ・ジャンルごとの実績開店数を結合し、相関係数と上位 K 件に対する
+    precision / recall を返す。K は最大 20 件またはスコア対象件数の少ない方。
+
+    Args:
+        scored_df: 機会スコア計算済み DataFrame。
+        actuals_df: 評価期間の実績開店データ。
+
+    Returns:
+        相関係数、precision@k、recall@k、ヒット件数、K を含む辞書。
+    """
     if scored_df.empty:
         return {
             "correlation": 0.0,
@@ -185,6 +270,18 @@ def run_backtest(
     historical_filepath: str,
     test_dates: list[str] | None = None,
 ) -> pd.DataFrame:
+    """複数の評価日でバックテストを実行し、結果を表形式で返す。
+
+    各評価日について、過去データだけを学習用に集計し、その日から 30 日間の
+    開店実績を正解データとして評価指標を計算する。
+
+    Args:
+        historical_filepath: 開店履歴 CSV のパス。
+        test_dates: 評価日文字列の一覧。`None` の場合は履歴に含まれる日付を使用する。
+
+    Returns:
+        各評価日の指標をまとめた DataFrame。
+    """
     historical = load_historical_openings(historical_filepath)
     result_columns = [
         "test_date",

@@ -11,7 +11,7 @@ from dash import Dash, Input, Output, dcc, html
 from folium.plugins import HeatMap
 
 from config import settings
-from src.analyze.scoring import compute_opportunity_score
+from src.analyze.scoring import compute_opportunity_score, compute_opportunity_score_v2
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +105,54 @@ def create_score_heatmap(
     return map_obj
 
 
+def create_population_heatmap(
+    df: pd.DataFrame,
+    center_lat: float = DEFAULT_CENTER_LAT,
+    center_lng: float = DEFAULT_CENTER_LNG,
+    zoom_start: int = DEFAULT_ZOOM_START,
+) -> folium.Map:
+    """人口を重みとしたヒートマップを生成する。
+
+    Args:
+        df: `population`, `lat`, `lng` を含む DataFrame。
+        center_lat: 初期中心緯度。
+        center_lng: 初期中心経度。
+        zoom_start: 初期ズームレベル。
+
+    Returns:
+        生成した `folium.Map` オブジェクト。
+    """
+    map_obj = folium.Map(
+        location=[center_lat, center_lng],
+        zoom_start=zoom_start,
+        tiles="CartoDB positron",
+    )
+
+    plot_df = _coerce_map_frame(df)
+    if plot_df.empty or "population" not in plot_df.columns:
+        return map_obj
+
+    population = pd.to_numeric(plot_df["population"], errors="coerce").fillna(0.0)
+    # メッシュ単位で重複を除いて描画
+    deduped = plot_df.assign(_pop=population).drop_duplicates(subset=["jis_mesh3"] if "jis_mesh3" in plot_df.columns else ["lat", "lng"])
+
+    heat_data = [
+        [float(row.lat), float(row.lng), float(row._pop)]
+        for row in deduped.itertuples()
+        if row._pop > 0
+    ]
+    if heat_data:
+        HeatMap(
+            heat_data,
+            radius=20,
+            blur=16,
+            min_opacity=0.3,
+            gradient={0.2: "blue", 0.4: "lime", 0.6: "yellow", 0.8: "orange", 1.0: "red"},
+        ).add_to(map_obj)
+
+    return map_obj
+
+
 def create_marker_map(df: pd.DataFrame, top_n: int = 20) -> folium.Map:
     """上位候補にマーカーを配置した地図を生成する。
 
@@ -163,9 +211,16 @@ def create_marker_map(df: pd.DataFrame, top_n: int = 20) -> folium.Map:
             .iloc[0]
         )
 
+        population = int(
+            pd.to_numeric(pd.Series([row.get("population", 0)]), errors="coerce")
+            .fillna(0)
+            .iloc[0]
+        )
+
         popup_lines = [
             f"<b>{mesh_code} &times; {unified_genre}</b>",
             f"Score: {score:.3f}",
+            f"Population: {population:,}",
             f"Competitors: {competitor_density}",
             f"Demand: {demand_score:.3f}",
         ]
@@ -194,17 +249,23 @@ def save_map(map_obj: folium.Map, filename: str) -> None:
     logger.info("Saved map HTML to %s", output_path)
 
 
-def _load_and_score(tag: str = "result", top_n: int = 20) -> pd.DataFrame:
+def _load_and_score(tag: str = "result", version: str = "v2") -> pd.DataFrame:
     """集計済み CSV を読み込み、可視化用のスコア列を付与する。
 
     Args:
         tag: 対象 CSV のタグ。
-        top_n: 呼び出し互換性のため受け取るが、この関数内では使用しない。
+        version: "v1" で従来スコア、"v2" で人口ベーススコアを使用。
 
     Returns:
         スコアリング済み DataFrame。読み込みや計算に失敗した場合は空 DataFrame。
     """
-    del top_n
+    if version == "v2":
+        csv_path = settings.PROCESSED_DATA_DIR / f"{tag}_integrated.csv"
+        if csv_path.exists():
+            try:
+                return pd.read_csv(csv_path)
+            except Exception:
+                logger.exception("Failed to load integrated data: %s", csv_path)
 
     csv_path = settings.PROCESSED_DATA_DIR / f"{tag}_aggregated.csv"
     try:
@@ -212,6 +273,8 @@ def _load_and_score(tag: str = "result", top_n: int = 20) -> pd.DataFrame:
             return pd.DataFrame()
 
         aggregated_df = pd.read_csv(csv_path)
+        if version == "v2":
+            return compute_opportunity_score_v2(aggregated_df)
         return compute_opportunity_score(aggregated_df)
     except Exception:
         logger.exception("Failed to load or score aggregated data: %s", csv_path)
@@ -227,11 +290,19 @@ def build_dash_app(tag: str = "result") -> object:
     Returns:
         レイアウトとコールバックを設定済みの Dash アプリケーション。
     """
-    data = _load_and_score(tag=tag)
+    data_cache: dict[str, pd.DataFrame] = {}
+
+    def _get_data(version: str) -> pd.DataFrame:
+        if version not in data_cache:
+            data_cache[version] = _load_and_score(tag=tag, version=version)
+        return data_cache[version]
+
+    # ジャンル選択肢は v2 から取得
+    init_data = _get_data("v2")
     genre_options = [{"label": "All", "value": "__all__"}]
-    if "unified_genre" in data.columns:
+    if "unified_genre" in init_data.columns:
         genre_values = (
-            data["unified_genre"].dropna().astype(str).sort_values().unique().tolist()
+            init_data["unified_genre"].dropna().astype(str).sort_values().unique().tolist()
         )
         genre_options.extend(
             {"label": genre_name, "value": genre_name} for genre_name in genre_values
@@ -243,6 +314,21 @@ def build_dash_app(tag: str = "result") -> object:
             html.H2("Market Gap Finder Dashboard"),
             html.Div(
                 [
+                    html.Div(
+                        [
+                            html.Label("Score Version"),
+                            dcc.Dropdown(
+                                id="score-version",
+                                options=[
+                                    {"label": "v2 (人口ベース)", "value": "v2"},
+                                    {"label": "v1 (店舗数ベース)", "value": "v1"},
+                                ],
+                                value="v2",
+                                clearable=False,
+                            ),
+                        ],
+                        style={"flex": "1", "minWidth": "180px"},
+                    ),
                     html.Div(
                         [
                             html.Label("Genre"),
@@ -261,14 +347,15 @@ def build_dash_app(tag: str = "result") -> object:
                             dcc.Dropdown(
                                 id="map-mode",
                                 options=[
-                                    {"label": "Heatmap", "value": "heatmap"},
+                                    {"label": "Score Heatmap", "value": "heatmap"},
+                                    {"label": "Population Heatmap", "value": "population"},
                                     {"label": "Markers", "value": "markers"},
                                 ],
                                 value="heatmap",
                                 clearable=False,
                             ),
                         ],
-                        style={"flex": "1", "minWidth": "180px"},
+                        style={"flex": "1", "minWidth": "200px"},
                     ),
                 ],
                 style={"display": "flex", "gap": "16px", "flexWrap": "wrap"},
@@ -297,13 +384,14 @@ def build_dash_app(tag: str = "result") -> object:
 
     @app.callback(
         Output("map-frame", "srcDoc"),
+        Input("score-version", "value"),
         Input("genre-filter", "value"),
         Input("top-n", "value"),
         Input("map-mode", "value"),
     )
-    def _update_map(selected_genre: str, top_n: int, map_mode: str) -> str:
+    def _update_map(score_version: str, selected_genre: str, top_n: int, map_mode: str) -> str:
         """UI の選択状態に応じて描画用地図 HTML を更新する。"""
-        filtered_df = data.copy()
+        filtered_df = _get_data(score_version or "v2").copy()
         if (
             selected_genre
             and selected_genre != "__all__"
@@ -315,6 +403,14 @@ def build_dash_app(tag: str = "result") -> object:
 
         if map_mode == "markers":
             map_obj = create_marker_map(filtered_df, top_n=top_n or 20)
+        elif map_mode == "population":
+            center_lat, center_lng = _resolve_map_center(_coerce_map_frame(filtered_df))
+            map_obj = create_population_heatmap(
+                filtered_df,
+                center_lat=center_lat,
+                center_lng=center_lng,
+                zoom_start=DEFAULT_ZOOM_START,
+            )
         else:
             center_lat, center_lng = _resolve_map_center(_coerce_map_frame(filtered_df))
             map_obj = create_score_heatmap(
@@ -329,15 +425,13 @@ def build_dash_app(tag: str = "result") -> object:
     return app
 
 
-def run_dashboard(host: str = "127.0.0.1", port: int = 8050) -> None:
+def run_dashboard(tag: str = "result", host: str = "127.0.0.1", port: int = 8050) -> None:
     """Dash ダッシュボードを起動する。
 
     Args:
+        tag: 読み込むデータのタグ。
         host: バインドするホスト名または IP アドレス。
         port: リッスンするポート番号。
     """
-    app = build_dash_app()
-    if hasattr(app, "run_server"):
-        app.run_server(host=host, port=port, debug=False)
-    else:
-        app.run(host=host, port=port, debug=False)
+    app = build_dash_app(tag=tag)
+    app.run(host=host, port=port, debug=False)

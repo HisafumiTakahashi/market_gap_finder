@@ -22,6 +22,7 @@ NUMERIC_FEATURES = [
     "neighbor_avg_restaurants",
     "saturation_index",
     "nearest_station_distance",
+    "land_price",
 ]
 CATEGORICAL_FEATURE = "unified_genre"
 TARGET_COL = "restaurant_count"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -60,6 +61,40 @@ def _build_direct_url(pref_code: str, fiscal_year: int = 2024) -> str:
     """Build a direct download URL using the fiscal year suffix."""
     year_short = str(fiscal_year)[-2:]
     return _DIRECT_URL_TEMPLATE.format(year_short=year_short, pref_code=pref_code)
+
+
+def _parse_land_price_geojson(content: bytes) -> pd.DataFrame:
+    """Parse GeoJSON land price data.
+
+    L01_008: 地価（円/m²）, coordinates: [lng, lat]
+    """
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        logger.warning("GeoJSON decode failed")
+        return pd.DataFrame(columns=["lat", "lng", "price_per_sqm"])
+
+    records = []
+    for feat in data.get("features", []):
+        props = feat.get("properties", {})
+        geom = feat.get("geometry", {})
+        coords = geom.get("coordinates", [])
+
+        price = props.get("L01_008")
+        if price is None or len(coords) < 2:
+            continue
+
+        try:
+            records.append({
+                "lat": float(coords[1]),
+                "lng": float(coords[0]),
+                "price_per_sqm": float(price),
+            })
+        except (ValueError, TypeError):
+            continue
+
+    logger.info("Parsed %d land price records from GeoJSON", len(records))
+    return pd.DataFrame(records)
 
 
 def _parse_land_price_gml(gml_content: bytes) -> pd.DataFrame:
@@ -144,9 +179,18 @@ def download_land_price(pref_code: str, fiscal_year: int = 2024) -> pd.DataFrame
             resp.raise_for_status()
 
             with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-                gml_files = [name for name in zf.namelist() if name.endswith((".xml", ".gml"))]
+                # GeoJSON優先（エンコーディング問題なし、構造が明確）
+                geojson_files = [n for n in zf.namelist() if n.endswith(".geojson")]
+                if geojson_files:
+                    parsed = _parse_land_price_geojson(zf.read(geojson_files[0]))
+                    if not parsed.empty:
+                        logger.info("Downloaded %d land price records (GeoJSON)", len(parsed))
+                        return parsed
+
+                # GeoJSONがなければXML/GMLにフォールバック
+                gml_files = [n for n in zf.namelist() if n.endswith((".xml", ".gml"))]
                 if not gml_files:
-                    logger.warning("No GML/XML files found in ZIP: %s", download_url)
+                    logger.warning("No parseable files in ZIP: %s", download_url)
                     continue
 
                 all_records = []
@@ -158,7 +202,7 @@ def download_land_price(pref_code: str, fiscal_year: int = 2024) -> pd.DataFrame
 
                 if all_records:
                     result = pd.concat(all_records, ignore_index=True)
-                    logger.info("Downloaded %d land price records", len(result))
+                    logger.info("Downloaded %d land price records (GML)", len(result))
                     return result
         except Exception:
             logger.warning("Failed to download land price data: %s", download_url, exc_info=True)

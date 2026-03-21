@@ -39,7 +39,11 @@ def load_integrated(tag: str) -> pd.DataFrame:
 
 
 def compute_all_scores(df: pd.DataFrame) -> pd.DataFrame:
-    """v1/v2/v3 のスコアを並列計算して1つの DataFrame にまとめる。"""
+    """v1/v2/v3 のスコアを並列計算して1つの DataFrame にまとめる。
+
+    統合済みCSVに既に空間特徴量が含まれている場合はそのまま利用する。
+    """
+    # v1 用のベースカラム
     base_cols = ["jis_mesh3", "unified_genre", "restaurant_count", "population",
                  "avg_rating", "total_reviews", "lat", "lng", "mesh_code"]
     clean = df[[c for c in base_cols if c in df.columns]].copy()
@@ -53,13 +57,21 @@ def compute_all_scores(df: pd.DataFrame) -> pd.DataFrame:
     v2 = compute_opportunity_score_v2(clean.copy())
     result["score_v2"] = v2["opportunity_score"].values
 
-    # v3 (特徴量を新規計算)
-    featured = add_all_features(clean.copy())
+    # v3: 統合済みCSVに空間特徴量があればそのまま利用
+    feature_cols = ["genre_diversity", "genre_hhi", "neighbor_avg_restaurants",
+                    "saturation_index", "nearest_station_distance", "land_price"]
+    has_features = all(c in df.columns for c in feature_cols[:4])
+
+    if has_features:
+        featured = df.copy()
+    else:
+        featured = add_all_features(clean.copy())
+
     v3 = compute_opportunity_score_v3(featured)
     result["score_v3"] = v3["opportunity_score"].values
 
     # 特徴量もコピー
-    for col in ["genre_diversity", "genre_hhi", "neighbor_avg_restaurants", "saturation_index"]:
+    for col in feature_cols:
         if col in v3.columns:
             result[col] = v3[col].values
 

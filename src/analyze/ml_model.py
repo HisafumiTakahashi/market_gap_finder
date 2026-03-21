@@ -39,8 +39,9 @@ NUMERIC_FEATURES = [
     "land_price",
     "google_avg_rating",
     "reviews_per_shop",
+    "google_density",
 ]
-LOG_TRANSFORM_FEATURES = {"other_genre_count", "neighbor_avg_restaurants"}
+LOG_TRANSFORM_FEATURES = {"other_genre_count", "neighbor_avg_restaurants", "google_total_reviews"}
 CATEGORICAL_FEATURE = "unified_genre"
 TARGET_COL = "restaurant_count"
 

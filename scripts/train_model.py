@@ -23,7 +23,7 @@ from src.analyze.ml_model import (
 )
 
 logger = logging.getLogger(__name__)
-ALL_TAGS = ["tokyo", "osaka", "nagoya", "fukuoka", "sapporo"]
+ALL_TAGS = ["tokyo", "osaka", "nagoya", "fukuoka"]
 
 
 def parse_args() -> argparse.Namespace:

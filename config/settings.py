@@ -23,7 +23,9 @@ PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 # API キー（環境変数から取得）
 # ──────────────────────────────────────
 HOTPEPPER_API_KEY: str = os.getenv("HOTPEPPER_API_KEY", "a43c9f65735eed2c")
-GOOGLE_PLACES_API_KEY: str = os.getenv("GOOGLE_PLACES_API_KEY", "")
+# GOOGLE_PLACES_API_KEY: コメントアウト済み（勝手にAPIアクセスしないこと）
+# GOOGLE_PLACES_API_KEY: str = os.getenv("GOOGLE_PLACES_API_KEY", "")
+GOOGLE_PLACES_API_KEY: str = ""
 ESTAT_API_KEY: str = os.getenv("ESTAT_API_KEY", "1de94b2d66d3db18a316a3afd04c9a85f363cba3")
 
 # ──────────────────────────────────────

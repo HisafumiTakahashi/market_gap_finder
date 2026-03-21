@@ -20,6 +20,7 @@ rapidfuzz>=3.5
 
 # 地理計算
 geopy>=2.4
+scipy>=1.11
 
 # テスト
 pytest>=7.4

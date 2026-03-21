@@ -37,6 +37,8 @@ NUMERIC_FEATURES = [
     "nearest_station_distance",
     "nearest_station_passengers",
     "land_price",
+    "google_avg_rating",
+    "reviews_per_shop",
 ]
 LOG_TRANSFORM_FEATURES = {"other_genre_count", "neighbor_avg_restaurants"}
 CATEGORICAL_FEATURE = "unified_genre"

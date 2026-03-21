@@ -22,7 +22,7 @@ from src.collect.land_price import load_land_price_cache
 from src.collect.station import load_station_cache
 from src.collect.station_passengers import load_passenger_cache
 from src.preprocess.cleaner import load_hotpepper, map_genre
-from src.preprocess.mesh_converter import assign_jis_mesh, mesh3_to_mesh1
+from src.preprocess.mesh_converter import assign_jis_mesh, lat_lon_to_mesh3, mesh3_to_mesh1
 
 
 logger = logging.getLogger(__name__)
@@ -136,6 +136,37 @@ def save_integrated(df: pd.DataFrame, tag: str) -> None:
     logger.info("統合結果を保存しました: %s", output_path)
 
 
+def _merge_google_ratings(integrated_df: pd.DataFrame, google_df: pd.DataFrame) -> pd.DataFrame:
+    """Google Placesのrating/review_countをメッシュ単位で集計しマージする。"""
+    gdf = google_df.copy()
+    gdf["lat"] = pd.to_numeric(gdf["lat"], errors="coerce")
+    gdf["lng"] = pd.to_numeric(gdf["lng"], errors="coerce")
+    gdf["rating"] = pd.to_numeric(gdf["rating"], errors="coerce")
+    gdf["review_count"] = pd.to_numeric(gdf["review_count"], errors="coerce")
+    gdf = gdf.dropna(subset=["lat", "lng"])
+
+    gdf["jis_mesh3"] = [lat_lon_to_mesh3(lat, lng) for lat, lng in zip(gdf["lat"], gdf["lng"])]
+
+    mesh_ratings = (
+        gdf.groupby("jis_mesh3")
+        .agg(
+            google_avg_rating=("rating", "mean"),
+            google_total_reviews=("review_count", "sum"),
+            google_place_count=("rating", "count"),
+        )
+        .reset_index()
+    )
+
+    out = integrated_df.merge(mesh_ratings, on="jis_mesh3", how="left")
+    out["google_avg_rating"] = out["google_avg_rating"].fillna(0.0)
+    out["google_total_reviews"] = out["google_total_reviews"].fillna(0.0)
+    out["google_place_count"] = out["google_place_count"].fillna(0).astype(int)
+    out["reviews_per_shop"] = out["google_total_reviews"] / out["google_place_count"].replace(0, 1)
+
+    logger.info("Google Places ratings merged: %d rows with data", (out["google_avg_rating"] > 0).sum())
+    return out
+
+
 def main() -> int:
     """e-Stat 統合パイプラインを実行する。"""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -180,6 +211,11 @@ def main() -> int:
         featured_df = add_all_features(
             integrated_df, station_df=station_df, passenger_df=passenger_df, price_df=price_df
         )
+        google_path = settings.RAW_DATA_DIR / f"{args.tag}_google_places.csv"
+        if google_path.exists():
+            google_df = pd.read_csv(google_path)
+            logger.info("Google Placesデータ読み込み: %d 件", len(google_df))
+            featured_df = _merge_google_ratings(featured_df, google_df)
 
         full_scored_df = compute_opportunity_score_v3(featured_df).sort_values(
             "opportunity_score", ascending=False

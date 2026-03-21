@@ -46,6 +46,9 @@ class TestPrepareFeatures:
             "price_x_saturation",
             "pop_x_station_dist",
         }.issubset(features.columns)
+        assert "pop_x_genre" not in features.columns
+        assert "neighbor_pop_x_genre" not in features.columns
+        assert features.loc[0, "other_genre_count"] == pytest.approx(np.log1p(3))
         assert target.iloc[0] == pytest.approx(np.log1p(2))
 
     def test_interaction_feature_values(self, ml_df: pd.DataFrame) -> None:
@@ -56,6 +59,11 @@ class TestPrepareFeatures:
         assert features.loc[0, "pop_x_station_dist"] == pytest.approx(
             features.loc[0, "population"] * features.loc[0, "nearest_station_distance"]
         )
+
+    def test_prepare_features_residual_mode(self, ml_df: pd.DataFrame) -> None:
+        features, target = prepare_features(ml_df, target_mode="residual")
+        assert not features.empty
+        assert target.mean() == pytest.approx(0.0, abs=1.0)
 
 
 class TestTrainCv:
@@ -191,6 +199,7 @@ class TestTuneHyperparams:
             params: dict | None = None,
             num_rounds: int = 300,
             group_col: str = "jis_mesh3",
+            target_mode: str = "raw",
         ) -> dict:
             calls.append(
                 {
@@ -198,6 +207,7 @@ class TestTuneHyperparams:
                     "params": params,
                     "num_rounds": num_rounds,
                     "group_col": group_col,
+                    "target_mode": target_mode,
                 }
             )
             return {
@@ -206,6 +216,7 @@ class TestTuneHyperparams:
                 "avg_r2": 0.789,
                 "oof_predictions": np.zeros(len(df)),
                 "feature_importance": pd.DataFrame({"feature": [], "importance": []}),
+                "n_filtered": 0,
             }
 
         monkeypatch.setattr("src.analyze.ml_model.optuna", DummyOptuna())

@@ -18,10 +18,12 @@ from src.analyze.ml_model import (
     save_model,
     train_cv,
     train_full_model,
+    train_leave_one_area_out,
     tune_hyperparams,
 )
 
 logger = logging.getLogger(__name__)
+ALL_TAGS = ["tokyo", "osaka", "nagoya", "fukuoka", "sapporo"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,6 +33,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-n", type=int, default=20, help="表示する上位候補数")
     parser.add_argument("--folds", type=int, default=5, help="CV分割数")
     parser.add_argument("--tune", action="store_true", help="Optunaでハイパーパラメータを探索")
+    parser.add_argument("--loao", action="store_true", help="Leave-One-Area-Out CVで汎化性能を測定")
+    parser.add_argument("--two-stage", action="store_true", help="2段階モデル（残差ターゲット）で学習")
     return parser.parse_args()
 
 
@@ -140,9 +144,13 @@ def main() -> int:
     args = parse_args()
 
     try:
+        available_tags: list[str] = []
         if args.combined:
             model_tag = "combined"
-            df = load_combined_integrated(["tokyo", "osaka", "nagoya"])
+            available_tags = [t for t in ALL_TAGS if (settings.PROCESSED_DATA_DIR / f"{t}_integrated.csv").exists()]
+            if not available_tags:
+                raise FileNotFoundError("No integrated CSV files found for combined training")
+            df = load_combined_integrated(available_tags)
         else:
             model_tag = args.tag
             df = load_integrated(args.tag)
@@ -159,16 +167,27 @@ def main() -> int:
             best_params = tuning_results["best_params"]
             best_num_rounds = tuning_results["best_num_rounds"]
 
+        target_mode = "residual" if args.two_stage else "raw"
         cv_results = train_cv(
             df,
             n_splits=args.folds,
             params=best_params,
             num_rounds=best_num_rounds or 300,
+            target_mode=target_mode,
         )
         print_cv_results(cv_results)
+        if args.loao and args.combined and len(available_tags) >= 2:
+            loao_results = train_leave_one_area_out(available_tags, params=best_params, num_rounds=best_num_rounds or 300)
+            print("=" * 60)
+            print("Leave-One-Area-Out CV 結果")
+            print("=" * 60)
+            for r in loao_results["area_results"]:
+                print(f"  {r['test_area']:10s}: RMSE={r['rmse']:.4f}, R2={r['r2']:.4f}")
+            print(f"  {'平均':10s}: RMSE={loao_results['avg_rmse']:.4f}, R2={loao_results['avg_r2']:.4f}")
+            print()
         print_feature_importance(cv_results["feature_importance"], section_no=3 if args.tune else 2)
 
-        gap_df = compute_market_gap(df, cv_results["oof_predictions"])
+        gap_df = compute_market_gap(df, cv_results["oof_predictions"], target_mode=target_mode)
         print_top_gaps(gap_df, args.top_n, section_no=4 if args.tune else 3)
 
         next_section = 5 if args.tune else 4
@@ -181,6 +200,7 @@ def main() -> int:
             df,
             params=best_params,
             num_rounds=best_num_rounds or 300,
+            target_mode=target_mode,
         )
         shap_values, features = compute_shap_values(full_model, df)
         print_shap_summary(shap_values, features, section_no=next_section)

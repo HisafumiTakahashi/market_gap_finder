@@ -19,6 +19,13 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+DEMAND_FEATURES = [
+    "population",
+    "neighbor_avg_population",
+    "nearest_station_passengers",
+    "land_price",
+    "nearest_station_distance",
+]
 NUMERIC_FEATURES = [
     "population",
     "genre_diversity",
@@ -31,6 +38,7 @@ NUMERIC_FEATURES = [
     "nearest_station_passengers",
     "land_price",
 ]
+LOG_TRANSFORM_FEATURES = {"other_genre_count", "neighbor_avg_restaurants"}
 CATEGORICAL_FEATURE = "unified_genre"
 TARGET_COL = "restaurant_count"
 
@@ -50,16 +58,38 @@ DEFAULT_NUM_ROUNDS = 300
 DEFAULT_EARLY_STOPPING = 30
 
 
-def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+def compute_expected_count(df: pd.DataFrame) -> np.ndarray:
+    """需要側特徴量のみでlog1p(restaurant_count)の期待値を線形回帰で推定する。"""
+    from sklearn.linear_model import Ridge
+
+    work = df.copy()
+    target = np.log1p(pd.to_numeric(work[TARGET_COL], errors="coerce").fillna(0))
+
+    feature_cols = [c for c in DEMAND_FEATURES if c in work.columns]
+    if not feature_cols:
+        return np.full(len(df), target.mean())
+
+    X = work[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0).values
+    model = Ridge(alpha=1.0)
+    model.fit(X, target)
+    return model.predict(X)
+
+
+def prepare_features(df: pd.DataFrame, target_mode: str = "raw") -> tuple[pd.DataFrame, pd.Series]:
     """Prepare model features and log1p target."""
     work = df.copy()
     work[TARGET_COL] = pd.to_numeric(work[TARGET_COL], errors="coerce").fillna(0)
     target = np.log1p(work[TARGET_COL])
+    if target_mode == "residual":
+        expected = compute_expected_count(work)
+        target = target - expected
 
     feature_cols = []
     for col in NUMERIC_FEATURES:
         if col in work.columns:
             work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
+            if col in LOG_TRANSFORM_FEATURES:
+                work[col] = np.log1p(work[col])
             feature_cols.append(col)
 
     if CATEGORICAL_FEATURE in work.columns:
@@ -84,6 +114,7 @@ def train_cv(
     num_rounds: int = DEFAULT_NUM_ROUNDS,
     group_col: str = "jis_mesh3",
     filter_outliers: bool = True,
+    target_mode: str = "raw",
 ) -> dict:
     """Train with cross validation, using grouped folds when available."""
     params = {**DEFAULT_PARAMS, **(params or {})}
@@ -98,7 +129,7 @@ def train_cv(
 
     clean_df = df.loc[clean_mask].reset_index(drop=True)
     work = clean_df.sample(frac=1.0, random_state=42).reset_index().rename(columns={"index": "_original_index"})
-    features, target = prepare_features(work)
+    features, target = prepare_features(work, target_mode=target_mode)
     logger.info("Training CV model with %d rows and %d features", features.shape[0], features.shape[1])
 
     groups = None
@@ -180,10 +211,11 @@ def train_full_model(
     df: pd.DataFrame,
     params: dict | None = None,
     num_rounds: int = DEFAULT_NUM_ROUNDS,
+    target_mode: str = "raw",
 ) -> lgb.Booster:
     """Train a model on the full dataset."""
     params = {**DEFAULT_PARAMS, **(params or {})}
-    features, target = prepare_features(df)
+    features, target = prepare_features(df, target_mode=target_mode)
     categorical_features = ["genre_encoded"] if "genre_encoded" in features.columns else []
     model = lgb.train(
         params,
@@ -250,15 +282,23 @@ def tune_hyperparams(
     }
 
 
-def compute_market_gap(df: pd.DataFrame, oof_predictions: np.ndarray) -> pd.DataFrame:
+def compute_market_gap(df: pd.DataFrame, oof_predictions: np.ndarray, target_mode: str = "raw") -> pd.DataFrame:
     """Compute model predicted gap vs actual restaurant count."""
     out = df.copy()
     actual = np.log1p(pd.to_numeric(out[TARGET_COL], errors="coerce").fillna(0).values)
+    if target_mode == "residual":
+        actual = actual - compute_expected_count(out)
     out["predicted_log_count"] = oof_predictions
     out["actual_log_count"] = actual
     out["market_gap"] = oof_predictions - actual
-    out["predicted_count"] = np.expm1(oof_predictions)
-    out["gap_count"] = out["predicted_count"] - pd.to_numeric(out[TARGET_COL], errors="coerce").fillna(0).values
+    if target_mode == "residual":
+        expected = compute_expected_count(out)
+        predicted_log_count = oof_predictions + expected
+        out["predicted_count"] = np.expm1(predicted_log_count)
+        out["gap_count"] = out["predicted_count"] - pd.to_numeric(out[TARGET_COL], errors="coerce").fillna(0).values
+    else:
+        out["predicted_count"] = np.expm1(oof_predictions)
+        out["gap_count"] = out["predicted_count"] - pd.to_numeric(out[TARGET_COL], errors="coerce").fillna(0).values
     return out
 
 
@@ -333,6 +373,33 @@ def train_cross_area(
         "actual": test_target.to_numpy(),
         "feature_importance": feature_importance,
         "model": model,
+    }
+
+
+def train_leave_one_area_out(
+    tags: list[str],
+    params: dict | None = None,
+    num_rounds: int = DEFAULT_NUM_ROUNDS,
+) -> dict:
+    """Leave-One-Area-Out CVで全エリアの汎化性能を測定する。"""
+    params = {**DEFAULT_PARAMS, **(params or {})}
+    area_results = []
+    for test_tag in tags:
+        train_tags = [t for t in tags if t != test_tag]
+        result = train_cross_area(train_tags, test_tag, params, num_rounds)
+        area_results.append(
+            {
+                "test_area": test_tag,
+                "rmse": result["rmse"],
+                "r2": result["r2"],
+            }
+        )
+        logger.info("LOAO %s: RMSE=%.4f, R2=%.4f", test_tag, result["rmse"], result["r2"])
+
+    return {
+        "area_results": area_results,
+        "avg_rmse": float(np.mean([r["rmse"] for r in area_results])),
+        "avg_r2": float(np.mean([r["r2"] for r in area_results])),
     }
 
 

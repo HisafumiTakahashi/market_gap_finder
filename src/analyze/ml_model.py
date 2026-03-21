@@ -27,7 +27,6 @@ NUMERIC_FEATURES = [
     "neighbor_avg_restaurants",
     "neighbor_avg_population",
     "saturation_index",
-    # genre_saturation, genre_share はターゲット(restaurant_count)から直接導出されるため除外
     "nearest_station_distance",
     "nearest_station_passengers",
     "land_price",
@@ -67,10 +66,6 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         work["genre_encoded"] = work[CATEGORICAL_FEATURE].astype("category").cat.codes
         feature_cols.append("genre_encoded")
 
-    if "population" in feature_cols and "genre_encoded" in feature_cols:
-        work["pop_x_genre"] = work["population"] * work["genre_encoded"]
-        feature_cols.append("pop_x_genre")
-
     if "land_price" in feature_cols and "saturation_index" in feature_cols:
         work["price_x_saturation"] = work["land_price"] * work["saturation_index"]
         feature_cols.append("price_x_saturation")
@@ -78,10 +73,6 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     if "population" in feature_cols and "nearest_station_distance" in feature_cols:
         work["pop_x_station_dist"] = work["population"] * work["nearest_station_distance"]
         feature_cols.append("pop_x_station_dist")
-
-    if "neighbor_avg_population" in feature_cols and "genre_encoded" in feature_cols:
-        work["neighbor_pop_x_genre"] = work["neighbor_avg_population"] * work["genre_encoded"]
-        feature_cols.append("neighbor_pop_x_genre")
 
     return work[feature_cols].copy(), target
 
@@ -92,10 +83,21 @@ def train_cv(
     params: dict | None = None,
     num_rounds: int = DEFAULT_NUM_ROUNDS,
     group_col: str = "jis_mesh3",
+    filter_outliers: bool = True,
 ) -> dict:
     """Train with cross validation, using grouped folds when available."""
     params = {**DEFAULT_PARAMS, **(params or {})}
-    work = df.sample(frac=1.0, random_state=42).reset_index().rename(columns={"index": "_original_index"})
+    clean_mask = pd.Series(True, index=df.index)
+    if filter_outliers and {"population", "restaurant_count"} <= set(df.columns):
+        pop = pd.to_numeric(df["population"], errors="coerce").fillna(0)
+        rc = pd.to_numeric(df["restaurant_count"], errors="coerce").fillna(0)
+        clean_mask = ~((pop < 2000) & (rc > 100))
+        filtered_count = int((~clean_mask).sum())
+        if filtered_count > 0:
+            logger.info("Filtered %d outlier rows", filtered_count)
+
+    clean_df = df.loc[clean_mask].reset_index(drop=True)
+    work = clean_df.sample(frac=1.0, random_state=42).reset_index().rename(columns={"index": "_original_index"})
     features, target = prepare_features(work)
     logger.info("Training CV model with %d rows and %d features", features.shape[0], features.shape[1])
 
@@ -117,8 +119,9 @@ def train_cv(
         X_val = features.iloc[val_idx]
         y_val = target.iloc[val_idx]
 
-        train_data = lgb.Dataset(X_train, label=y_train)
-        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+        categorical_features = ["genre_encoded"] if "genre_encoded" in X_train.columns else []
+        train_data = lgb.Dataset(X_train, label=y_train, categorical_feature=categorical_features)
+        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data, categorical_feature=categorical_features)
         model = lgb.train(
             params,
             train_data,
@@ -149,8 +152,11 @@ def train_cv(
             )
         )
 
+    clean_oof_predictions = np.zeros(len(clean_df))
+    clean_oof_predictions[work["_original_index"].to_numpy()] = shuffled_oof_predictions
+
     oof_predictions = np.zeros(len(df))
-    oof_predictions[work["_original_index"].to_numpy()] = shuffled_oof_predictions
+    oof_predictions[np.flatnonzero(clean_mask.to_numpy())] = clean_oof_predictions
 
     importance_df = (
         pd.concat(feature_importance_list)
@@ -166,6 +172,7 @@ def train_cv(
         "avg_r2": float(np.mean([m["r2"] for m in fold_metrics])),
         "oof_predictions": oof_predictions,
         "feature_importance": importance_df,
+        "n_filtered": int((~clean_mask).sum()),
     }
 
 
@@ -177,7 +184,12 @@ def train_full_model(
     """Train a model on the full dataset."""
     params = {**DEFAULT_PARAMS, **(params or {})}
     features, target = prepare_features(df)
-    model = lgb.train(params, lgb.Dataset(features, label=target), num_boost_round=num_rounds)
+    categorical_features = ["genre_encoded"] if "genre_encoded" in features.columns else []
+    model = lgb.train(
+        params,
+        lgb.Dataset(features, label=target, categorical_feature=categorical_features),
+        num_boost_round=num_rounds,
+    )
     logger.info("Trained full model with %d rounds", num_rounds)
     return model
 
@@ -297,7 +309,12 @@ def train_cross_area(
     train_features, train_target = prepare_features(train_df)
     test_features, test_target = prepare_features(test_df)
 
-    model = lgb.train(params, lgb.Dataset(train_features, label=train_target), num_boost_round=num_rounds)
+    categorical_features = ["genre_encoded"] if "genre_encoded" in train_features.columns else []
+    model = lgb.train(
+        params,
+        lgb.Dataset(train_features, label=train_target, categorical_feature=categorical_features),
+        num_boost_round=num_rounds,
+    )
     predictions = model.predict(test_features)
 
     feature_importance = pd.DataFrame(

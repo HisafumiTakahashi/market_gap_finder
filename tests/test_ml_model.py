@@ -20,6 +20,7 @@ def ml_df() -> pd.DataFrame:
             "neighbor_avg_population": [1000, 1100, 1200, 1300, 1400, 1500],
             "saturation_index": [1.2, 1.5, 1.7, 2.0, 2.2, 2.5],
             "nearest_station_distance": [0.2, 0.4, 0.5, 0.6, 0.8, 1.0],
+            "nearest_station_passengers": [10000, 12000, 14000, 16000, 18000, 20000],
             "land_price": [100, 110, 120, 130, 140, 150],
             "unified_genre": ["cafe", "ramen", "cafe", "izakaya", "sushi", "cafe"],
             "restaurant_count": [2, 3, 4, 5, 6, 7],
@@ -40,34 +41,27 @@ class TestPrepareFeatures:
             "neighbor_avg_population",
             "saturation_index",
             "nearest_station_distance",
+            "nearest_station_passengers",
             "genre_encoded",
-            "pop_x_genre",
             "price_x_saturation",
             "pop_x_station_dist",
-            "neighbor_pop_x_genre",
         }.issubset(features.columns)
         assert target.iloc[0] == pytest.approx(np.log1p(2))
 
     def test_interaction_feature_values(self, ml_df: pd.DataFrame) -> None:
         features, _ = prepare_features(ml_df)
-        assert features.loc[0, "pop_x_genre"] == pytest.approx(
-            features.loc[0, "population"] * features.loc[0, "genre_encoded"]
-        )
         assert features.loc[0, "price_x_saturation"] == pytest.approx(
             features.loc[0, "land_price"] * features.loc[0, "saturation_index"]
         )
         assert features.loc[0, "pop_x_station_dist"] == pytest.approx(
             features.loc[0, "population"] * features.loc[0, "nearest_station_distance"]
         )
-        assert features.loc[0, "neighbor_pop_x_genre"] == pytest.approx(
-            features.loc[0, "neighbor_avg_population"] * features.loc[0, "genre_encoded"]
-        )
 
 
 class TestTrainCv:
     def test_train_cv_result_keys(self, ml_df: pd.DataFrame) -> None:
         result = train_cv(ml_df, n_splits=2, num_rounds=20)
-        assert {"fold_metrics", "avg_rmse", "avg_r2", "oof_predictions", "feature_importance"} <= result.keys()
+        assert {"fold_metrics", "avg_rmse", "avg_r2", "oof_predictions", "feature_importance", "n_filtered"} <= result.keys()
         assert len(result["fold_metrics"]) == 2
         assert len(result["oof_predictions"]) == len(ml_df)
 

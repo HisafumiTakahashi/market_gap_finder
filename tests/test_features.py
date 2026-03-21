@@ -76,10 +76,10 @@ class TestAddGenreHHI:
         assert (result["genre_hhi"] >= 0).all()
         assert (result["genre_hhi"] <= 1).all()
 
-    def test_single_genre_hhi_is_one(self) -> None:
+    def test_single_genre_hhi_is_zero_when_no_other_rows_exist(self) -> None:
         df = pd.DataFrame({"jis_mesh3": ["m1"], "unified_genre": ["cafe"], "restaurant_count": [10]})
         result = add_genre_hhi(df)
-        assert result["genre_hhi"].iloc[0] == pytest.approx(1.0)
+        assert result["genre_hhi"].iloc[0] == pytest.approx(0.0)
 
 
 class TestAddNeighborCompetition:
@@ -126,6 +126,11 @@ class TestAddSaturationIndex:
     def test_saturation_nonnegative(self, sample_df: pd.DataFrame) -> None:
         result = add_saturation_index(sample_df)
         assert (result["saturation_index"] >= 0).all()
+
+    def test_uses_leave_one_out_restaurant_count(self, sample_df: pd.DataFrame) -> None:
+        result = add_saturation_index(sample_df)
+        expected = 5 / (50000 / 10000 + 0.1)
+        assert result.loc[0, "saturation_index"] == pytest.approx(expected)
 
 
 class TestAddGenreSaturation:

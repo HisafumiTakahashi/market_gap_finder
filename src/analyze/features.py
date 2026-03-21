@@ -83,12 +83,16 @@ def add_genre_hhi(df: pd.DataFrame) -> pd.DataFrame:
         df["genre_hhi"] = 0.0
         return df
 
-    mesh_total = df.groupby("jis_mesh3")["restaurant_count"].transform("sum")
-    share = df["restaurant_count"] / mesh_total.replace(0, 1)
-    df = df.copy()
-    df["_share_sq"] = share**2
-    hhi = df.groupby("jis_mesh3")["_share_sq"].sum().rename("genre_hhi")
-    return df.drop(columns=["_share_sq"]).merge(hhi, on="jis_mesh3", how="left")
+    out = df.copy()
+    rc = pd.to_numeric(out["restaurant_count"], errors="coerce").fillna(0)
+    mesh_total = rc.groupby(out["jis_mesh3"]).transform("sum")
+    share = rc / mesh_total.replace(0, 1)
+    share_sq = share**2
+    mesh_hhi_sum = share_sq.groupby(out["jis_mesh3"]).transform("sum")
+    other_total = mesh_total - rc
+    out["genre_hhi"] = mesh_hhi_sum
+    out.loc[other_total == 0, "genre_hhi"] = 0.0
+    return out
 
 
 def add_other_genre_count(df: pd.DataFrame) -> pd.DataFrame:
@@ -162,19 +166,22 @@ def add_neighbor_population(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_saturation_index(df: pd.DataFrame) -> pd.DataFrame:
-    """Add restaurants-per-population saturation index by mesh."""
+    """Add restaurants-per-population saturation index by mesh (LOO)."""
     if df.empty or "jis_mesh3" not in df.columns:
         df = df.copy()
         df["saturation_index"] = 0.0
         return df
 
-    mesh_agg = df.groupby("jis_mesh3").agg(
-        total_restaurants=("restaurant_count", "sum"),
-        population=("population", "first"),
+    out = df.copy()
+    mesh_total = out.groupby("jis_mesh3")["restaurant_count"].transform("sum")
+    other_total = mesh_total - out["restaurant_count"]
+    pop = (
+        pd.to_numeric(out.groupby("jis_mesh3")["population"].transform("first"), errors="coerce")
+        .fillna(0)
+        .clip(lower=0)
     )
-    pop = mesh_agg["population"].fillna(0).clip(lower=0)
-    mesh_agg["saturation_index"] = mesh_agg["total_restaurants"] / (pop / 10000 + 0.1)
-    return df.merge(mesh_agg["saturation_index"], on="jis_mesh3", how="left")
+    out["saturation_index"] = other_total / (pop / 10000 + 0.1)
+    return out
 
 
 def add_genre_saturation(df: pd.DataFrame) -> pd.DataFrame:

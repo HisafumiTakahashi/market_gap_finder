@@ -1,0 +1,246 @@
+"""Machine learning utilities for estimating restaurant count gaps."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import lightgbm as lgb
+import numpy as np
+import pandas as pd
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import KFold
+
+from config import settings
+
+logger = logging.getLogger(__name__)
+
+NUMERIC_FEATURES = [
+    "population",
+    "genre_diversity",
+    "genre_hhi",
+    "neighbor_avg_restaurants",
+    "saturation_index",
+    "nearest_station_distance",
+]
+CATEGORICAL_FEATURE = "unified_genre"
+TARGET_COL = "restaurant_count"
+
+DEFAULT_PARAMS = {
+    "objective": "regression",
+    "metric": "rmse",
+    "boosting_type": "gbdt",
+    "num_leaves": 31,
+    "learning_rate": 0.05,
+    "feature_fraction": 0.8,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 5,
+    "verbose": -1,
+    "seed": 42,
+}
+DEFAULT_NUM_ROUNDS = 300
+DEFAULT_EARLY_STOPPING = 30
+
+
+def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Prepare model features and log1p target."""
+    work = df.copy()
+    work[TARGET_COL] = pd.to_numeric(work[TARGET_COL], errors="coerce").fillna(0)
+    target = np.log1p(work[TARGET_COL])
+
+    feature_cols = []
+    for col in NUMERIC_FEATURES:
+        if col in work.columns:
+            work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
+            feature_cols.append(col)
+
+    if CATEGORICAL_FEATURE in work.columns:
+        work["genre_encoded"] = work[CATEGORICAL_FEATURE].astype("category").cat.codes
+        feature_cols.append("genre_encoded")
+
+    return work[feature_cols].copy(), target
+
+
+def train_cv(
+    df: pd.DataFrame,
+    n_splits: int = 5,
+    params: dict | None = None,
+    num_rounds: int = DEFAULT_NUM_ROUNDS,
+) -> dict:
+    """Train with K-fold cross validation."""
+    params = params or DEFAULT_PARAMS.copy()
+    features, target = prepare_features(df)
+    logger.info("Training CV model with %d rows and %d features", features.shape[0], features.shape[1])
+
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+    oof_predictions = np.zeros(len(df))
+    fold_metrics = []
+    feature_importance_list = []
+
+    for fold_idx, (train_idx, val_idx) in enumerate(kf.split(features), 1):
+        X_train = features.iloc[train_idx]
+        y_train = target.iloc[train_idx]
+        X_val = features.iloc[val_idx]
+        y_val = target.iloc[val_idx]
+
+        train_data = lgb.Dataset(X_train, label=y_train)
+        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+        model = lgb.train(
+            params,
+            train_data,
+            num_boost_round=num_rounds,
+            valid_sets=[val_data],
+            callbacks=[
+                lgb.early_stopping(DEFAULT_EARLY_STOPPING, verbose=False),
+                lgb.log_evaluation(period=0),
+            ],
+        )
+
+        val_pred = model.predict(X_val)
+        oof_predictions[val_idx] = val_pred
+
+        fold_metrics.append(
+            {
+                "fold": fold_idx,
+                "rmse": mean_squared_error(y_val, val_pred, squared=False),
+                "r2": r2_score(y_val, val_pred),
+            }
+        )
+        feature_importance_list.append(
+            pd.DataFrame(
+                {
+                    "feature": features.columns,
+                    "importance": model.feature_importance(importance_type="gain"),
+                }
+            )
+        )
+
+    importance_df = (
+        pd.concat(feature_importance_list)
+        .groupby("feature")["importance"]
+        .mean()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+
+    return {
+        "fold_metrics": fold_metrics,
+        "avg_rmse": float(np.mean([m["rmse"] for m in fold_metrics])),
+        "avg_r2": float(np.mean([m["r2"] for m in fold_metrics])),
+        "oof_predictions": oof_predictions,
+        "feature_importance": importance_df,
+    }
+
+
+def train_full_model(
+    df: pd.DataFrame,
+    params: dict | None = None,
+    num_rounds: int = DEFAULT_NUM_ROUNDS,
+) -> lgb.Booster:
+    """Train a model on the full dataset."""
+    params = params or DEFAULT_PARAMS.copy()
+    features, target = prepare_features(df)
+    model = lgb.train(params, lgb.Dataset(features, label=target), num_boost_round=num_rounds)
+    logger.info("Trained full model with %d rounds", num_rounds)
+    return model
+
+
+def compute_market_gap(df: pd.DataFrame, oof_predictions: np.ndarray) -> pd.DataFrame:
+    """Compute model predicted gap vs actual restaurant count."""
+    out = df.copy()
+    actual = np.log1p(pd.to_numeric(out[TARGET_COL], errors="coerce").fillna(0).values)
+    out["predicted_log_count"] = oof_predictions
+    out["actual_log_count"] = actual
+    out["market_gap"] = oof_predictions - actual
+    out["predicted_count"] = np.expm1(oof_predictions)
+    out["gap_count"] = out["predicted_count"] - pd.to_numeric(out[TARGET_COL], errors="coerce").fillna(0).values
+    return out
+
+
+def compute_shap_values(model: lgb.Booster, df: pd.DataFrame) -> tuple[np.ndarray, pd.DataFrame]:
+    """Compute SHAP values for a trained model."""
+    import shap
+
+    features, _ = prepare_features(df)
+    explainer = shap.TreeExplainer(model)
+    return explainer.shap_values(features), features
+
+
+def compare_with_v3(df: pd.DataFrame) -> pd.DataFrame:
+    """Compare ML gap ranking with v3 opportunity ranking."""
+    if "market_gap" not in df.columns or "opportunity_score" not in df.columns:
+        raise KeyError("market_gap and opportunity_score columns are required")
+
+    out = df.copy()
+    out["rank_ml"] = out["market_gap"].rank(ascending=False, method="min").astype(int)
+    out["rank_v3"] = out["opportunity_score"].rank(ascending=False, method="min").astype(int)
+    out["rank_diff"] = out["rank_v3"] - out["rank_ml"]
+    return out
+
+
+def train_cross_area(
+    train_tags: list[str],
+    test_tag: str,
+    params: dict | None = None,
+    num_rounds: int = DEFAULT_NUM_ROUNDS,
+) -> dict:
+    """Train on multiple areas and evaluate on a separate area."""
+    params = params or DEFAULT_PARAMS.copy()
+
+    train_frames = []
+    for tag in train_tags:
+        path = settings.PROCESSED_DATA_DIR / f"{tag}_integrated.csv"
+        if not path.exists():
+            raise FileNotFoundError(path)
+        train_frames.append(pd.read_csv(path))
+
+    test_path = settings.PROCESSED_DATA_DIR / f"{test_tag}_integrated.csv"
+    if not test_path.exists():
+        raise FileNotFoundError(test_path)
+
+    train_df = pd.concat(train_frames, ignore_index=True)
+    test_df = pd.read_csv(test_path)
+
+    train_features, train_target = prepare_features(train_df)
+    test_features, test_target = prepare_features(test_df)
+
+    model = lgb.train(params, lgb.Dataset(train_features, label=train_target), num_boost_round=num_rounds)
+    predictions = model.predict(test_features)
+
+    feature_importance = pd.DataFrame(
+        {
+            "feature": train_features.columns,
+            "importance": model.feature_importance(importance_type="gain"),
+        }
+    ).sort_values("importance", ascending=False, ignore_index=True)
+
+    return {
+        "train_tags": train_tags,
+        "test_tag": test_tag,
+        "rmse": mean_squared_error(test_target, predictions, squared=False),
+        "r2": r2_score(test_target, predictions),
+        "predictions": predictions,
+        "actual": test_target.to_numpy(),
+        "feature_importance": feature_importance,
+        "model": model,
+    }
+
+
+def save_model(model: lgb.Booster, tag: str) -> Path:
+    """Save a trained model."""
+    models_dir = settings.PROJECT_ROOT / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    path = models_dir / f"{tag}_lightgbm.txt"
+    model.save_model(str(path))
+    logger.info("Saved model to %s", path)
+    return path
+
+
+def load_model(tag: str) -> lgb.Booster | None:
+    """Load a saved model if present."""
+    path = settings.PROJECT_ROOT / "models" / f"{tag}_lightgbm.txt"
+    if not path.exists():
+        return None
+    model = lgb.Booster(model_file=str(path))
+    logger.info("Loaded model from %s", path)
+    return model

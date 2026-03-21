@@ -1,5 +1,3 @@
-"""空間特徴量モジュールのユニットテスト。"""
-
 from __future__ import annotations
 
 import pandas as pd
@@ -32,10 +30,17 @@ class TestNeighborMeshCodes:
         neighbors = _neighbor_mesh_codes("53393586")
         assert len(neighbors) == 8
 
-    def test_corner_returns_fewer(self) -> None:
+    def test_corner_wraps_across_boundary(self) -> None:
+        # s=0,t=0 → ds=-1 wraps s→9 and q→q-1, dt=-1 wraps t→9 and r→r-1
         neighbors = _neighbor_mesh_codes("53393500")
-        # (0,0) corner: only 3 neighbors
-        assert len(neighbors) == 3
+        assert len(neighbors) == 8
+        assert "53392499" in neighbors  # q:3→2, r:5→4, s:9, t:9
+        assert "53393501" in neighbors
+
+    def test_crosses_second_mesh_boundary(self) -> None:
+        # q=3,r=0,s=0,t=0 → ds=-1,dt=-1 wraps s→9,q→2 and t→9,r→7,u→38
+        neighbors = _neighbor_mesh_codes("53393000")
+        assert "53382799" in neighbors  # u:39→38, q:3→2, r:0→7, s:9, t:9
 
     def test_invalid_code(self) -> None:
         assert _neighbor_mesh_codes("abc") == []
@@ -49,9 +54,7 @@ class TestAddGenreDiversity:
 
     def test_correct_counts(self, sample_df: pd.DataFrame) -> None:
         result = add_genre_diversity(sample_df)
-        # 53393586: cafe, ramen => 2 genres
         assert result.loc[result["jis_mesh3"] == "53393586", "genre_diversity"].iloc[0] == 2
-        # 53393587: cafe, ramen, izakaya => 3 genres
         assert result.loc[result["jis_mesh3"] == "53393587", "genre_diversity"].iloc[0] == 3
 
     def test_empty_df(self) -> None:
@@ -70,9 +73,7 @@ class TestAddGenreHHI:
         assert (result["genre_hhi"] <= 1).all()
 
     def test_single_genre_hhi_is_one(self) -> None:
-        df = pd.DataFrame(
-            {"jis_mesh3": ["m1"], "unified_genre": ["cafe"], "restaurant_count": [10]}
-        )
+        df = pd.DataFrame({"jis_mesh3": ["m1"], "unified_genre": ["cafe"], "restaurant_count": [10]})
         result = add_genre_hhi(df)
         assert result["genre_hhi"].iloc[0] == pytest.approx(1.0)
 

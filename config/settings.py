@@ -72,3 +72,8 @@ WEIGHT_DEMAND: float = 1.0       # 需要スコアの重み
 WEIGHT_COMPETITOR: float = 1.0   # 競合密度の重み（除算側に乗算）
 WEIGHT_POPULATION: float = 1.0   # 人口密度の重み
 WEIGHT_LAND_PRICE: float = 1.0   # 地価逆数の重み
+ 
+# ──────────────────────────────────────
+# 外部データディレクトリ
+# ──────────────────────────────────────
+EXTERNAL_DATA_DIR = PROJECT_ROOT / "data" / "external"

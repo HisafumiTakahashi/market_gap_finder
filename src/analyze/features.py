@@ -1,8 +1,4 @@
-"""空間特徴量エンジニアリングモジュール。
-
-メッシュ単位の集計データに対して、ジャンル多様性・隣接メッシュ競合・
-ジャンル集中度（HHI）・人口飽和度などの空間特徴量を追加する。
-"""
+"""Feature engineering utilities for market opportunity analysis."""
 
 from __future__ import annotations
 
@@ -10,22 +6,19 @@ import logging
 
 import pandas as pd
 
-from src.preprocess.mesh_converter import mesh3_to_lat_lon
-
 logger = logging.getLogger(__name__)
 
 
 def _neighbor_mesh_codes(mesh3: str) -> list[str]:
-    """3次メッシュコードの8近傍メッシュコードを返す。
-
-    3次メッシュの末尾2桁 (s, t) を ±1 して隣接を算出する。
-    s: 0-9 (緯度方向), t: 0-9 (経度方向)
-    """
+    """Return the 8 neighboring third-level mesh codes, wrapping across boundaries."""
     mesh3 = str(mesh3)
     if len(mesh3) != 8 or not mesh3.isdigit():
         return []
 
-    prefix = mesh3[:6]
+    p = int(mesh3[0:2])
+    u = int(mesh3[2:4])
+    q = int(mesh3[4])
+    r = int(mesh3[5])
     s = int(mesh3[6])
     t = int(mesh3[7])
     neighbors = []
@@ -34,37 +27,57 @@ def _neighbor_mesh_codes(mesh3: str) -> list[str]:
         for dt in (-1, 0, 1):
             if ds == 0 and dt == 0:
                 continue
+
             ns, nt = s + ds, t + dt
-            if 0 <= ns <= 9 and 0 <= nt <= 9:
-                neighbors.append(f"{prefix}{ns}{nt}")
+            nq, nr = q, r
+            np_, nu = p, u
+
+            if ns < 0:
+                ns = 9
+                nq -= 1
+            elif ns > 9:
+                ns = 0
+                nq += 1
+
+            if nt < 0:
+                nt = 9
+                nr -= 1
+            elif nt > 9:
+                nt = 0
+                nr += 1
+
+            if nq < 0:
+                nq = 7
+                np_ -= 1
+            elif nq > 7:
+                nq = 0
+                np_ += 1
+
+            if nr < 0:
+                nr = 7
+                nu -= 1
+            elif nr > 7:
+                nr = 0
+                nu += 1
+
+            neighbors.append(f"{np_:02d}{nu:02d}{nq}{nr}{ns}{nt}")
 
     return neighbors
 
 
 def add_genre_diversity(df: pd.DataFrame) -> pd.DataFrame:
-    """メッシュ内のジャンル数を特徴量として追加する。
-
-    商業集積が進んでいるエリアほどジャンルが多様になる傾向がある。
-    """
+    """Add the number of unique genres within each mesh."""
     if df.empty or "jis_mesh3" not in df.columns:
         df = df.copy()
         df["genre_diversity"] = 0
         return df
 
-    mesh_genre_count = (
-        df.groupby("jis_mesh3")["unified_genre"]
-        .nunique()
-        .rename("genre_diversity")
-    )
+    mesh_genre_count = df.groupby("jis_mesh3")["unified_genre"].nunique().rename("genre_diversity")
     return df.merge(mesh_genre_count, on="jis_mesh3", how="left")
 
 
 def add_genre_hhi(df: pd.DataFrame) -> pd.DataFrame:
-    """メッシュ内のジャンル集中度（HHI）を追加する。
-
-    HHI が高い = 特定ジャンルに偏っている = 他ジャンル参入余地あり。
-    HHI が低い = 多様なジャンルが均等に存在。
-    """
+    """Add Herfindahl-Hirschman Index by mesh."""
     if df.empty or "jis_mesh3" not in df.columns:
         df = df.copy()
         df["genre_hhi"] = 0.0
@@ -73,27 +86,19 @@ def add_genre_hhi(df: pd.DataFrame) -> pd.DataFrame:
     mesh_total = df.groupby("jis_mesh3")["restaurant_count"].transform("sum")
     share = df["restaurant_count"] / mesh_total.replace(0, 1)
     df = df.copy()
-    df["_share_sq"] = share ** 2
+    df["_share_sq"] = share**2
     hhi = df.groupby("jis_mesh3")["_share_sq"].sum().rename("genre_hhi")
-    df = df.drop(columns=["_share_sq"]).merge(hhi, on="jis_mesh3", how="left")
-    return df
+    return df.drop(columns=["_share_sq"]).merge(hhi, on="jis_mesh3", how="left")
 
 
 def add_neighbor_competition(df: pd.DataFrame) -> pd.DataFrame:
-    """隣接メッシュの平均店舗数を特徴量として追加する。
-
-    周辺に競合が多い = 需要が高いエリアだが飽和リスクもある。
-    """
+    """Add average restaurant count in neighboring meshes."""
     if df.empty or "jis_mesh3" not in df.columns:
         df = df.copy()
         df["neighbor_avg_restaurants"] = 0.0
         return df
 
-    mesh_total = (
-        df.groupby("jis_mesh3")["restaurant_count"]
-        .sum()
-        .to_dict()
-    )
+    mesh_total = df.groupby("jis_mesh3")["restaurant_count"].sum().to_dict()
 
     def _calc_neighbor_avg(mesh3: str) -> float:
         neighbors = _neighbor_mesh_codes(mesh3)
@@ -102,18 +107,14 @@ def add_neighbor_competition(df: pd.DataFrame) -> pd.DataFrame:
         counts = [mesh_total.get(n, 0) for n in neighbors]
         return sum(counts) / len(counts)
 
-    unique_meshes = df["jis_mesh3"].dropna().unique()
-    neighbor_map = {m: _calc_neighbor_avg(m) for m in unique_meshes}
-    df = df.copy()
-    df["neighbor_avg_restaurants"] = df["jis_mesh3"].map(neighbor_map).fillna(0.0)
-    return df
+    neighbor_map = {mesh: _calc_neighbor_avg(mesh) for mesh in df["jis_mesh3"].dropna().unique()}
+    out = df.copy()
+    out["neighbor_avg_restaurants"] = out["jis_mesh3"].map(neighbor_map).fillna(0.0)
+    return out
 
 
 def add_saturation_index(df: pd.DataFrame) -> pd.DataFrame:
-    """人口あたり総店舗数（飽和度）をメッシュ単位で追加する。
-
-    人口1万人あたりの全ジャンル合計店舗数。高いほど競争が激しい。
-    """
+    """Add restaurants-per-population saturation index by mesh."""
     if df.empty or "jis_mesh3" not in df.columns:
         df = df.copy()
         df["saturation_index"] = 0.0
@@ -125,18 +126,89 @@ def add_saturation_index(df: pd.DataFrame) -> pd.DataFrame:
     )
     pop = mesh_agg["population"].fillna(0).clip(lower=0)
     mesh_agg["saturation_index"] = mesh_agg["total_restaurants"] / (pop / 10000 + 0.1)
-    sat = mesh_agg["saturation_index"]
-
-    return df.merge(sat, on="jis_mesh3", how="left")
+    return df.merge(mesh_agg["saturation_index"], on="jis_mesh3", how="left")
 
 
-def add_all_features(df: pd.DataFrame) -> pd.DataFrame:
-    """全空間特徴量を一括追加する。"""
-    logger.info("空間特徴量を追加します: %d 行", len(df))
+def add_nearest_station(df: pd.DataFrame, station_df: pd.DataFrame) -> pd.DataFrame:
+    """Add nearest station distance and name for each row."""
+    from src.collect.station import haversine_km
+
+    if df.empty or station_df is None or station_df.empty:
+        out = df.copy()
+        out["nearest_station_distance"] = 0.0
+        out["nearest_station_name"] = ""
+        return out
+
+    station_lats = station_df["lat"].values
+    station_lngs = station_df["lng"].values
+    station_names = station_df["station_name"].values
+
+    distances: list[float] = []
+    names: list[str] = []
+    for _, row in df.iterrows():
+        lat = float(row.get("lat", 0))
+        lng = float(row.get("lng", 0))
+        if lat == 0 or lng == 0:
+            distances.append(0.0)
+            names.append("")
+            continue
+
+        min_dist = float("inf")
+        min_name = ""
+        for s_lat, s_lng, s_name in zip(station_lats, station_lngs, station_names):
+            distance = haversine_km(lat, lng, float(s_lat), float(s_lng))
+            if distance < min_dist:
+                min_dist = distance
+                min_name = str(s_name)
+
+        distances.append(min_dist)
+        names.append(min_name)
+
+    out = df.copy()
+    out["nearest_station_distance"] = distances
+    out["nearest_station_name"] = names
+    return out
+
+
+def add_land_price(df: pd.DataFrame, price_df: pd.DataFrame) -> pd.DataFrame:
+    """Map land price data to mesh level and merge into the analysis frame."""
+    if df.empty or price_df is None or price_df.empty or "jis_mesh3" not in df.columns:
+        out = df.copy()
+        out["land_price"] = 0.0
+        return out
+
+    price_work = price_df.copy()
+    price_work["lat"] = pd.to_numeric(price_work["lat"], errors="coerce")
+    price_work["lng"] = pd.to_numeric(price_work["lng"], errors="coerce")
+    price_work = price_work.dropna(subset=["lat", "lng"])
+
+    from src.preprocess.mesh_converter import lat_lon_to_mesh3
+
+    price_work["jis_mesh3"] = [
+        lat_lon_to_mesh3(lat, lng) for lat, lng in zip(price_work["lat"], price_work["lng"])
+    ]
+    mesh_price = price_work.groupby("jis_mesh3")["price_per_sqm"].mean().rename("land_price")
+
+    result = df.merge(mesh_price, on="jis_mesh3", how="left")
+    result["land_price"] = result["land_price"].fillna(0.0)
+    return result
+
+
+def add_all_features(
+    df: pd.DataFrame,
+    station_df: pd.DataFrame | None = None,
+    price_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Run the full feature engineering pipeline."""
+    logger.info("Adding features to %d rows", len(df))
     out = df
     out = add_genre_diversity(out)
     out = add_genre_hhi(out)
     out = add_neighbor_competition(out)
     out = add_saturation_index(out)
-    logger.info("特徴量追加完了: 列数 %d → %d", len(df.columns), len(out.columns))
+    if station_df is not None and not station_df.empty:
+        out = add_nearest_station(out, station_df)
+    if price_df is not None and not price_df.empty:
+        out = add_land_price(out, price_df)
+    logger.info("Feature engineering completed: %d -> %d columns", len(df.columns), len(out.columns))
     return out

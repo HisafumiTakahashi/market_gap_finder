@@ -8,6 +8,10 @@ from pathlib import Path
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+try:
+    import optuna
+except ImportError:  # pragma: no cover - exercised in runtime environments without Optuna installed
+    optuna = None
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import GroupKFold, KFold
 
@@ -21,7 +25,9 @@ NUMERIC_FEATURES = [
     "genre_hhi",
     "other_genre_count",
     "neighbor_avg_restaurants",
+    "neighbor_avg_population",
     "saturation_index",
+    # genre_saturation, genre_share はターゲット(restaurant_count)から直接導出されるため除外
     "nearest_station_distance",
     "land_price",
 ]
@@ -72,6 +78,10 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         work["pop_x_station_dist"] = work["population"] * work["nearest_station_distance"]
         feature_cols.append("pop_x_station_dist")
 
+    if "neighbor_avg_population" in feature_cols and "genre_encoded" in feature_cols:
+        work["neighbor_pop_x_genre"] = work["neighbor_avg_population"] * work["genre_encoded"]
+        feature_cols.append("neighbor_pop_x_genre")
+
     return work[feature_cols].copy(), target
 
 
@@ -83,7 +93,7 @@ def train_cv(
     group_col: str = "jis_mesh3",
 ) -> dict:
     """Train with cross validation, using grouped folds when available."""
-    params = params or DEFAULT_PARAMS.copy()
+    params = {**DEFAULT_PARAMS, **(params or {})}
     work = df.sample(frac=1.0, random_state=42).reset_index().rename(columns={"index": "_original_index"})
     features, target = prepare_features(work)
     logger.info("Training CV model with %d rows and %d features", features.shape[0], features.shape[1])
@@ -164,11 +174,67 @@ def train_full_model(
     num_rounds: int = DEFAULT_NUM_ROUNDS,
 ) -> lgb.Booster:
     """Train a model on the full dataset."""
-    params = params or DEFAULT_PARAMS.copy()
+    params = {**DEFAULT_PARAMS, **(params or {})}
     features, target = prepare_features(df)
     model = lgb.train(params, lgb.Dataset(features, label=target), num_boost_round=num_rounds)
     logger.info("Trained full model with %d rounds", num_rounds)
     return model
+
+
+def tune_hyperparams(
+    df: pd.DataFrame,
+    n_trials: int = 50,
+    n_splits: int = 5,
+    group_col: str = "jis_mesh3",
+) -> dict:
+    """Optunaでハイパーパラメータを最適化する。"""
+    if optuna is None:
+        raise ImportError("optuna is required for hyperparameter tuning")
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    def objective(trial: optuna.trial.Trial) -> float:
+        params = {
+            "num_leaves": trial.suggest_int("num_leaves", 15, 63),
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+            "min_child_samples": trial.suggest_int("min_child_samples", 5, 50),
+            "feature_fraction": trial.suggest_float("feature_fraction", 0.5, 1.0),
+            "bagging_fraction": trial.suggest_float("bagging_fraction", 0.5, 1.0),
+            "bagging_freq": trial.suggest_int("bagging_freq", 1, 10),
+            "lambda_l1": trial.suggest_float("lambda_l1", 0.0, 10.0),
+            "lambda_l2": trial.suggest_float("lambda_l2", 0.0, 10.0),
+        }
+        num_rounds = trial.suggest_int("num_boost_round", 100, 500)
+        cv_results = train_cv(
+            df,
+            n_splits=n_splits,
+            params=params,
+            num_rounds=num_rounds,
+            group_col=group_col,
+        )
+        trial.set_user_attr("avg_r2", cv_results["avg_r2"])
+        return float(cv_results["avg_rmse"])
+
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=n_trials)
+
+    best_params = study.best_params.copy()
+    best_num_rounds = int(best_params.pop("num_boost_round"))
+    best_cv = train_cv(
+        df,
+        n_splits=n_splits,
+        params=best_params,
+        num_rounds=best_num_rounds,
+        group_col=group_col,
+    )
+
+    return {
+        "best_params": best_params,
+        "best_num_rounds": best_num_rounds,
+        "best_rmse": float(best_cv["avg_rmse"]),
+        "best_r2": float(best_cv["avg_r2"]),
+        "study": study,
+    }
 
 
 def compute_market_gap(df: pd.DataFrame, oof_predictions: np.ndarray) -> pd.DataFrame:
@@ -211,7 +277,7 @@ def train_cross_area(
     num_rounds: int = DEFAULT_NUM_ROUNDS,
 ) -> dict:
     """Train on multiple areas and evaluate on a separate area."""
-    params = params or DEFAULT_PARAMS.copy()
+    params = {**DEFAULT_PARAMS, **(params or {})}
 
     train_frames = []
     for tag in train_tags:

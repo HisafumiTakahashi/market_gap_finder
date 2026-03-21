@@ -104,6 +104,19 @@ def add_other_genre_count(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_genre_share(df: pd.DataFrame) -> pd.DataFrame:
+    """メッシュ内での当該ジャンルの店舗数シェアを追加する。"""
+    if df.empty or "jis_mesh3" not in df.columns:
+        out = df.copy()
+        out["genre_share"] = 0.0
+        return out
+
+    mesh_total = df.groupby("jis_mesh3")["restaurant_count"].transform("sum")
+    out = df.copy()
+    out["genre_share"] = out["restaurant_count"] / mesh_total.replace(0, 1)
+    return out
+
+
 def add_neighbor_competition(df: pd.DataFrame) -> pd.DataFrame:
     """Add average restaurant count in neighboring meshes."""
     if df.empty or "jis_mesh3" not in df.columns:
@@ -126,6 +139,28 @@ def add_neighbor_competition(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def add_neighbor_population(df: pd.DataFrame) -> pd.DataFrame:
+    """近傍メッシュの平均人口を追加する。"""
+    if df.empty or "jis_mesh3" not in df.columns:
+        out = df.copy()
+        out["neighbor_avg_population"] = 0.0
+        return out
+
+    mesh_population = df.groupby("jis_mesh3")["population"].first().fillna(0).to_dict()
+
+    def _calc_neighbor_avg(mesh3: str) -> float:
+        neighbors = _neighbor_mesh_codes(mesh3)
+        if not neighbors:
+            return 0.0
+        populations = [mesh_population.get(n, 0) for n in neighbors]
+        return float(sum(populations) / len(populations))
+
+    neighbor_map = {mesh: _calc_neighbor_avg(mesh) for mesh in df["jis_mesh3"].dropna().unique()}
+    out = df.copy()
+    out["neighbor_avg_population"] = out["jis_mesh3"].map(neighbor_map).fillna(0.0)
+    return out
+
+
 def add_saturation_index(df: pd.DataFrame) -> pd.DataFrame:
     """Add restaurants-per-population saturation index by mesh."""
     if df.empty or "jis_mesh3" not in df.columns:
@@ -140,6 +175,20 @@ def add_saturation_index(df: pd.DataFrame) -> pd.DataFrame:
     pop = mesh_agg["population"].fillna(0).clip(lower=0)
     mesh_agg["saturation_index"] = mesh_agg["total_restaurants"] / (pop / 10000 + 0.1)
     return df.merge(mesh_agg["saturation_index"], on="jis_mesh3", how="left")
+
+
+def add_genre_saturation(df: pd.DataFrame) -> pd.DataFrame:
+    """ジャンル別の人口あたり店舗密度を追加する。"""
+    if df.empty or "population" not in df.columns:
+        out = df.copy()
+        out["genre_saturation"] = 0.0
+        return out
+
+    out = df.copy()
+    population = pd.to_numeric(out["population"], errors="coerce").fillna(0).clip(lower=0)
+    restaurant_count = pd.to_numeric(out["restaurant_count"], errors="coerce").fillna(0)
+    out["genre_saturation"] = restaurant_count / (population / 10000 + 0.1)
+    return out
 
 
 def add_nearest_station(df: pd.DataFrame, station_df: pd.DataFrame) -> pd.DataFrame:
@@ -218,8 +267,11 @@ def add_all_features(
     out = add_genre_diversity(out)
     out = add_genre_hhi(out)
     out = add_other_genre_count(out)
+    out = add_genre_share(out)
     out = add_neighbor_competition(out)
+    out = add_neighbor_population(out)
     out = add_saturation_index(out)
+    out = add_genre_saturation(out)
     if station_df is not None and not station_df.empty:
         out = add_nearest_station(out, station_df)
     if price_df is not None and not price_df.empty:

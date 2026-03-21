@@ -8,7 +8,10 @@ from src.analyze.features import (
     add_all_features,
     add_genre_diversity,
     add_genre_hhi,
+    add_genre_saturation,
+    add_genre_share,
     add_neighbor_competition,
+    add_neighbor_population,
     add_other_genre_count,
     add_saturation_index,
 )
@@ -104,6 +107,17 @@ class TestAddOtherGenreCount:
         assert result["other_genre_count"].tolist() == [0, 0]
 
 
+class TestAddGenreShare:
+    def test_adds_column(self, sample_df: pd.DataFrame) -> None:
+        result = add_genre_share(sample_df)
+        assert "genre_share" in result.columns
+
+    def test_share_within_mesh(self, sample_df: pd.DataFrame) -> None:
+        result = add_genre_share(sample_df)
+        mesh1 = result[result["jis_mesh3"] == "53393586"].sort_values("restaurant_count")
+        assert mesh1["genre_share"].tolist() == pytest.approx([5 / 15, 10 / 15])
+
+
 class TestAddSaturationIndex:
     def test_adds_column(self, sample_df: pd.DataFrame) -> None:
         result = add_saturation_index(sample_df)
@@ -114,10 +128,53 @@ class TestAddSaturationIndex:
         assert (result["saturation_index"] >= 0).all()
 
 
+class TestAddGenreSaturation:
+    def test_adds_column(self, sample_df: pd.DataFrame) -> None:
+        result = add_genre_saturation(sample_df)
+        assert "genre_saturation" in result.columns
+
+    def test_uses_row_level_restaurant_count_and_population(self, sample_df: pd.DataFrame) -> None:
+        result = add_genre_saturation(sample_df)
+        expected = 10 / (50000 / 10000 + 0.1)
+        assert result.loc[0, "genre_saturation"] == pytest.approx(expected)
+
+
+class TestAddNeighborPopulation:
+    def test_adds_column(self, sample_df: pd.DataFrame) -> None:
+        result = add_neighbor_population(sample_df)
+        assert "neighbor_avg_population" in result.columns
+
+    def test_neighbor_population_values_nonnegative(self, sample_df: pd.DataFrame) -> None:
+        result = add_neighbor_population(sample_df)
+        assert (result["neighbor_avg_population"] >= 0).all()
+
+    def test_uses_neighbor_mesh_population_average(self) -> None:
+        df = pd.DataFrame(
+            {
+                "jis_mesh3": ["53393586", "53393587", "53393596"],
+                "unified_genre": ["cafe", "ramen", "sushi"],
+                "restaurant_count": [2, 3, 4],
+                "population": [1000, 2000, 3000],
+            }
+        )
+        result = add_neighbor_population(df)
+        target = result.loc[result["jis_mesh3"] == "53393586", "neighbor_avg_population"].iloc[0]
+        assert target == pytest.approx((2000 + 3000) / 8)
+
+
 class TestAddAllFeatures:
     def test_adds_all_columns(self, sample_df: pd.DataFrame) -> None:
         result = add_all_features(sample_df)
-        for col in ("genre_diversity", "genre_hhi", "other_genre_count", "neighbor_avg_restaurants", "saturation_index"):
+        for col in (
+            "genre_diversity",
+            "genre_hhi",
+            "other_genre_count",
+            "genre_share",
+            "neighbor_avg_restaurants",
+            "neighbor_avg_population",
+            "saturation_index",
+            "genre_saturation",
+        ):
             assert col in result.columns, f"{col} missing"
 
     def test_row_count_preserved(self, sample_df: pd.DataFrame) -> None:

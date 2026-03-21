@@ -1,3 +1,9 @@
+"""収集済み店舗データの前処理を行うモジュール。
+
+Hotpepper から取得した生データを読み込み、ジャンル正規化やメッシュコード付与、
+メッシュ単位の集計を行って分析しやすい中間データを生成する。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -24,6 +30,17 @@ GENRE_MAPPING: dict[str, tuple[str, ...]] = {
 
 
 def load_hotpepper(tag: str = "result") -> pd.DataFrame:
+    """生データ CSV から Hotpepper 収集結果を読み込む。
+
+    Args:
+        tag: 入出力ファイル名に使用するタグ。
+
+    Returns:
+        読み込んだ店舗データの DataFrame。
+
+    Raises:
+        FileNotFoundError: 対象 CSV が存在しない場合。
+    """
     file_path = settings.RAW_DATA_DIR / f"{tag}_hotpepper.csv"
     if not file_path.exists():
         raise FileNotFoundError(file_path)
@@ -33,10 +50,25 @@ def load_hotpepper(tag: str = "result") -> pd.DataFrame:
 
 
 def map_genre(df: pd.DataFrame) -> pd.DataFrame:
+    """`genre` 列を正規化して統一ジャンル列を追加する。
+
+    `GENRE_MAPPING` に定義した部分一致ルールに従ってジャンル名を
+    `unified_genre` 列へ変換し、該当しない値や欠損値は `other` とする。
+
+    Args:
+        df: `genre` 列を含む店舗データ。
+
+    Returns:
+        `unified_genre` 列を追加した DataFrame のコピー。
+
+    Raises:
+        KeyError: `genre` 列が存在しない場合。
+    """
     if "genre" not in df.columns:
         raise KeyError("genre column is required")
 
     def normalize_genre(value: object) -> str:
+        """単一のジャンル文字列を統一ジャンル名へ変換する。"""
         text = str(value).strip().lower()
         if not text or text == "nan":
             return "other"
@@ -52,6 +84,21 @@ def map_genre(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def assign_mesh_code(df: pd.DataFrame) -> pd.DataFrame:
+    """緯度経度からメッシュコードを算出して付与する。
+
+    緯度・経度を数値化したうえで設定済みのメッシュ刻み幅ごとにビン分けし、
+    `lat_bin_lng_bin` 形式の文字列を `mesh_code` 列として追加する。
+    緯度経度が欠損または数値化できない行には `unknown` を設定する。
+
+    Args:
+        df: `lat` 列と `lng` 列を含む DataFrame。
+
+    Returns:
+        `mesh_code` 列を追加した DataFrame のコピー。
+
+    Raises:
+        KeyError: `lat` または `lng` 列が存在しない場合。
+    """
     if "lat" not in df.columns or "lng" not in df.columns:
         raise KeyError("lat and lng columns are required")
 
@@ -73,6 +120,17 @@ def assign_mesh_code(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def aggregate_by_mesh_genre(df: pd.DataFrame) -> pd.DataFrame:
+    """メッシュコードと統一ジャンル単位で店舗データを集計する。
+
+    前処理としてジャンル正規化とメッシュコード付与を行い、その後
+    店舗数・平均評価・レビュー総数・平均座標を算出する。
+
+    Args:
+        df: 生の店舗一覧 DataFrame。
+
+    Returns:
+        `mesh_code` と `unified_genre` ごとに集約した DataFrame。
+    """
     aggregated_input = assign_mesh_code(map_genre(df))
     aggregated_input["rating"] = pd.to_numeric(aggregated_input["rating"], errors="coerce")
     aggregated_input["review_count"] = (
@@ -98,6 +156,12 @@ def aggregate_by_mesh_genre(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def save_processed(df: pd.DataFrame, filename: str) -> None:
+    """前処理済み DataFrame を CSV として保存する。
+
+    Args:
+        df: 保存対象の DataFrame。
+        filename: `PROCESSED_DATA_DIR` 配下に保存するファイル名。
+    """
     settings.PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
     output_path = settings.PROCESSED_DATA_DIR / filename
     df.to_csv(output_path, index=False, encoding="utf-8-sig")
@@ -105,6 +169,17 @@ def save_processed(df: pd.DataFrame, filename: str) -> None:
 
 
 def run_preprocess(tag: str = "result") -> pd.DataFrame:
+    """前処理パイプライン全体を実行する。
+
+    生データの読み込み、メッシュ・ジャンル単位の集計、集計結果の保存までを
+    一括で行う。
+
+    Args:
+        tag: 対象ファイルのタグ。
+
+    Returns:
+        集計済み DataFrame。
+    """
     hotpepper_df = load_hotpepper(tag)
     aggregated_df = aggregate_by_mesh_genre(hotpepper_df)
     save_processed(aggregated_df, f"{tag}_aggregated.csv")

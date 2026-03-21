@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+"""指定エリアの店舗データ収集を CLI から実行するスクリプト。"""
+
 import argparse
 import logging
 import sys
@@ -8,6 +10,11 @@ from src.collect.collector import run_collection
 
 
 def parse_args() -> argparse.Namespace:
+    """収集対象エリアを表すコマンドライン引数を解析する。
+
+    Returns:
+        緯度経度範囲と出力タグを保持した名前空間。
+    """
     parser = argparse.ArgumentParser(
         description="Collect data for a specified geographic area."
     )
@@ -20,6 +27,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """収集処理を実行し、終了コードを返す。
+
+    Returns:
+        正常終了時は `0`、例外発生時は `1`。
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",

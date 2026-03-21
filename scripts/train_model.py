@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="LightGBM市場ギャップ予測モデル学習")
     parser.add_argument("--tag", type=str, default="tokyo", help="対象データタグ")
+    parser.add_argument("--combined", action="store_true", help="tokyo, osaka, nagoya を結合して学習")
     parser.add_argument("--top-n", type=int, default=20, help="表示する上位件数")
     parser.add_argument("--folds", type=int, default=5, help="CV分割数")
     return parser.parse_args()
@@ -36,6 +37,10 @@ def load_integrated(tag: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"{path} が見つかりません。先に integrate_estat.py を実行してください。")
     return pd.read_csv(path)
+
+
+def load_combined_integrated(tags: list[str]) -> pd.DataFrame:
+    return pd.concat([load_integrated(tag) for tag in tags], ignore_index=True)
 
 
 def print_cv_results(cv_results: dict) -> None:
@@ -136,7 +141,12 @@ def main() -> int:
     args = parse_args()
 
     try:
-        df = load_integrated(args.tag)
+        if args.combined:
+            model_tag = "combined"
+            df = load_combined_integrated(["tokyo", "osaka", "nagoya"])
+        else:
+            model_tag = args.tag
+            df = load_integrated(args.tag)
         logger.info("統合データ読み込み: %d 行", len(df))
         print()
 
@@ -162,10 +172,10 @@ def main() -> int:
         print_shap_summary(shap_values, features)
 
         # モデル保存
-        save_model(full_model, args.tag)
+        save_model(full_model, model_tag)
 
         # ギャップ結果保存
-        output_path = settings.PROCESSED_DATA_DIR / f"{args.tag}_ml_gap.csv"
+        output_path = settings.PROCESSED_DATA_DIR / f"{model_tag}_ml_gap.csv"
         gap_df.to_csv(output_path, index=False, encoding="utf-8-sig")
         logger.info("MLギャップ結果を保存: %s", output_path)
 

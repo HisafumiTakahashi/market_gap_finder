@@ -9,7 +9,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.model_selection import KFold
+from sklearn.model_selection import GroupKFold, KFold
 
 from config import settings
 
@@ -19,6 +19,7 @@ NUMERIC_FEATURES = [
     "population",
     "genre_diversity",
     "genre_hhi",
+    "other_genre_count",
     "neighbor_avg_restaurants",
     "saturation_index",
     "nearest_station_distance",
@@ -59,6 +60,18 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         work["genre_encoded"] = work[CATEGORICAL_FEATURE].astype("category").cat.codes
         feature_cols.append("genre_encoded")
 
+    if "population" in feature_cols and "genre_encoded" in feature_cols:
+        work["pop_x_genre"] = work["population"] * work["genre_encoded"]
+        feature_cols.append("pop_x_genre")
+
+    if "land_price" in feature_cols and "saturation_index" in feature_cols:
+        work["price_x_saturation"] = work["land_price"] * work["saturation_index"]
+        feature_cols.append("price_x_saturation")
+
+    if "population" in feature_cols and "nearest_station_distance" in feature_cols:
+        work["pop_x_station_dist"] = work["population"] * work["nearest_station_distance"]
+        feature_cols.append("pop_x_station_dist")
+
     return work[feature_cols].copy(), target
 
 
@@ -67,18 +80,27 @@ def train_cv(
     n_splits: int = 5,
     params: dict | None = None,
     num_rounds: int = DEFAULT_NUM_ROUNDS,
+    group_col: str = "jis_mesh3",
 ) -> dict:
-    """Train with K-fold cross validation."""
+    """Train with cross validation, using grouped folds when available."""
     params = params or DEFAULT_PARAMS.copy()
-    features, target = prepare_features(df)
+    work = df.sample(frac=1.0, random_state=42).reset_index().rename(columns={"index": "_original_index"})
+    features, target = prepare_features(work)
     logger.info("Training CV model with %d rows and %d features", features.shape[0], features.shape[1])
 
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    oof_predictions = np.zeros(len(df))
+    groups = None
+    splitter: GroupKFold | KFold
+    if group_col in work.columns:
+        groups = work[group_col]
+        splitter = GroupKFold(n_splits=n_splits)
+    else:
+        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+    shuffled_oof_predictions = np.zeros(len(work))
     fold_metrics = []
     feature_importance_list = []
 
-    for fold_idx, (train_idx, val_idx) in enumerate(kf.split(features), 1):
+    for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(features, groups=groups), 1):
         X_train = features.iloc[train_idx]
         y_train = target.iloc[train_idx]
         X_val = features.iloc[val_idx]
@@ -98,7 +120,7 @@ def train_cv(
         )
 
         val_pred = model.predict(X_val)
-        oof_predictions[val_idx] = val_pred
+        shuffled_oof_predictions[val_idx] = val_pred
 
         fold_metrics.append(
             {
@@ -115,6 +137,9 @@ def train_cv(
                 }
             )
         )
+
+    oof_predictions = np.zeros(len(df))
+    oof_predictions[work["_original_index"].to_numpy()] = shuffled_oof_predictions
 
     importance_df = (
         pd.concat(feature_importance_list)

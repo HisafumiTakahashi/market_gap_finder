@@ -91,6 +91,19 @@ def add_genre_hhi(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=["_share_sq"]).merge(hhi, on="jis_mesh3", how="left")
 
 
+def add_other_genre_count(df: pd.DataFrame) -> pd.DataFrame:
+    """Add the total restaurant count of all other genres within the mesh."""
+    if df.empty or "jis_mesh3" not in df.columns:
+        df = df.copy()
+        df["other_genre_count"] = 0
+        return df
+
+    mesh_total = df.groupby("jis_mesh3")["restaurant_count"].transform("sum")
+    df = df.copy()
+    df["other_genre_count"] = mesh_total - df["restaurant_count"]
+    return df
+
+
 def add_neighbor_competition(df: pd.DataFrame) -> pd.DataFrame:
     """Add average restaurant count in neighboring meshes."""
     if df.empty or "jis_mesh3" not in df.columns:
@@ -204,6 +217,7 @@ def add_all_features(
     out = df
     out = add_genre_diversity(out)
     out = add_genre_hhi(out)
+    out = add_other_genre_count(out)
     out = add_neighbor_competition(out)
     out = add_saturation_index(out)
     if station_df is not None and not station_df.empty:

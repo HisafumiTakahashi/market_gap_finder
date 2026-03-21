@@ -9,6 +9,7 @@ from src.analyze.features import (
     add_genre_diversity,
     add_genre_hhi,
     add_neighbor_competition,
+    add_other_genre_count,
     add_saturation_index,
 )
 
@@ -88,6 +89,21 @@ class TestAddNeighborCompetition:
         assert (result["neighbor_avg_restaurants"] >= 0).all()
 
 
+class TestAddOtherGenreCount:
+    def test_adds_column(self, sample_df: pd.DataFrame) -> None:
+        result = add_other_genre_count(sample_df)
+        assert "other_genre_count" in result.columns
+
+    def test_counts_other_genres_within_mesh(self, sample_df: pd.DataFrame) -> None:
+        result = add_other_genre_count(sample_df)
+        mesh1 = result[result["jis_mesh3"] == "53393586"].sort_values("restaurant_count")
+        assert mesh1["other_genre_count"].tolist() == [10, 5]
+
+    def test_missing_mesh_column_defaults_zero(self) -> None:
+        result = add_other_genre_count(pd.DataFrame({"restaurant_count": [3, 5]}))
+        assert result["other_genre_count"].tolist() == [0, 0]
+
+
 class TestAddSaturationIndex:
     def test_adds_column(self, sample_df: pd.DataFrame) -> None:
         result = add_saturation_index(sample_df)
@@ -101,7 +117,7 @@ class TestAddSaturationIndex:
 class TestAddAllFeatures:
     def test_adds_all_columns(self, sample_df: pd.DataFrame) -> None:
         result = add_all_features(sample_df)
-        for col in ("genre_diversity", "genre_hhi", "neighbor_avg_restaurants", "saturation_index"):
+        for col in ("genre_diversity", "genre_hhi", "other_genre_count", "neighbor_avg_restaurants", "saturation_index"):
             assert col in result.columns, f"{col} missing"
 
     def test_row_count_preserved(self, sample_df: pd.DataFrame) -> None:

@@ -29,6 +29,7 @@ NUMERIC_FEATURES = [
     "saturation_index",
     # genre_saturation, genre_share はターゲット(restaurant_count)から直接導出されるため除外
     "nearest_station_distance",
+    "nearest_station_passengers",
     "land_price",
 ]
 CATEGORICAL_FEATURE = "unified_genre"

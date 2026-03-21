@@ -20,6 +20,7 @@ from src.analyze.scoring import (
 from src.collect.estat import fetch_mesh_population, save_raw
 from src.collect.land_price import load_land_price_cache
 from src.collect.station import load_station_cache
+from src.collect.station_passengers import load_passenger_cache
 from src.preprocess.cleaner import load_hotpepper, map_genre
 from src.preprocess.mesh_converter import assign_jis_mesh, mesh3_to_mesh1
 
@@ -165,15 +166,20 @@ def main() -> int:
         ).fillna(0.0)
 
         logger.info("空間特徴量を追加します")
-        # 外部データ（駅・地価）があればロード
+        # 外部データ（駅・地価・乗降客数）があればロード
         station_df = load_station_cache(args.tag)
         price_df = load_land_price_cache(args.tag)
+        passenger_df = load_passenger_cache(args.tag)
         if station_df is not None:
             logger.info("駅データを読み込みました: %d 駅", len(station_df))
         if price_df is not None:
             logger.info("地価データを読み込みました: %d 件", len(price_df))
+        if passenger_df is not None:
+            logger.info("乗降客数データを読み込みました: %d 駅", len(passenger_df))
 
-        featured_df = add_all_features(integrated_df, station_df=station_df, price_df=price_df)
+        featured_df = add_all_features(
+            integrated_df, station_df=station_df, passenger_df=passenger_df, price_df=price_df
+        )
 
         full_scored_df = compute_opportunity_score_v3(featured_df).sort_values(
             "opportunity_score", ascending=False

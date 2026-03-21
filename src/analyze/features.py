@@ -232,6 +232,53 @@ def add_nearest_station(df: pd.DataFrame, station_df: pd.DataFrame) -> pd.DataFr
     return out
 
 
+def add_nearest_station_passengers(df: pd.DataFrame, passenger_df: pd.DataFrame) -> pd.DataFrame:
+    """最寄り駅の乗降客数を追加する。"""
+    from src.collect.station import haversine_km
+
+    out = df.copy()
+    if out.empty or passenger_df is None or passenger_df.empty:
+        out["nearest_station_passengers"] = 0.0
+        return out
+
+    passenger_work = passenger_df.copy()
+    passenger_work["passengers"] = pd.to_numeric(passenger_work.get("passengers"), errors="coerce").fillna(0.0)
+
+    if "nearest_station_name" in out.columns and "station_name" in passenger_work.columns:
+        station_passenger_map = passenger_work.groupby("station_name")["passengers"].max().to_dict()
+        matched = out["nearest_station_name"].map(station_passenger_map)
+        if matched.notna().any():
+            out["nearest_station_passengers"] = matched.fillna(0.0)
+            return out
+
+    passenger_lats = pd.to_numeric(passenger_work["lat"], errors="coerce").values
+    passenger_lngs = pd.to_numeric(passenger_work["lng"], errors="coerce").values
+    passenger_counts = passenger_work["passengers"].values
+
+    values: list[float] = []
+    for _, row in out.iterrows():
+        lat = float(row.get("lat", 0))
+        lng = float(row.get("lng", 0))
+        if lat == 0 or lng == 0:
+            values.append(0.0)
+            continue
+
+        min_dist = float("inf")
+        nearest_passengers = 0.0
+        for s_lat, s_lng, s_passengers in zip(passenger_lats, passenger_lngs, passenger_counts):
+            if pd.isna(s_lat) or pd.isna(s_lng):
+                continue
+            distance = haversine_km(lat, lng, float(s_lat), float(s_lng))
+            if distance < min_dist:
+                min_dist = distance
+                nearest_passengers = float(s_passengers)
+
+        values.append(nearest_passengers)
+
+    out["nearest_station_passengers"] = values
+    return out
+
+
 def add_land_price(df: pd.DataFrame, price_df: pd.DataFrame) -> pd.DataFrame:
     """Map land price data to mesh level and merge into the analysis frame."""
     if df.empty or price_df is None or price_df.empty or "jis_mesh3" not in df.columns:
@@ -259,6 +306,7 @@ def add_land_price(df: pd.DataFrame, price_df: pd.DataFrame) -> pd.DataFrame:
 def add_all_features(
     df: pd.DataFrame,
     station_df: pd.DataFrame | None = None,
+    passenger_df: pd.DataFrame | None = None,
     price_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Run the full feature engineering pipeline."""
@@ -274,6 +322,8 @@ def add_all_features(
     out = add_genre_saturation(out)
     if station_df is not None and not station_df.empty:
         out = add_nearest_station(out, station_df)
+    if passenger_df is not None:
+        out = add_nearest_station_passengers(out, passenger_df)
     if price_df is not None and not price_df.empty:
         out = add_land_price(out, price_df)
     logger.info("Feature engineering completed: %d -> %d columns", len(df.columns), len(out.columns))

@@ -4,11 +4,69 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Market Gap Report - tokyo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+         background: #f5f7fa; color: #333; line-height: 1.6; padding: 24px; }
+  h1 { font-size: 1.6rem; margin-bottom: 8px; color: #1a1a2e; }
+  h2 { font-size: 1.2rem; margin: 24px 0 12px; color: #16213e; border-left: 4px solid #0f3460; padding-left: 10px; }
+  .meta { font-size: 0.85rem; color: #666; margin-bottom: 20px; }
+  /* --- stats cards --- */
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 24px; }
+  .stat-card { background: #fff; border-radius: 8px; padding: 16px 20px; min-width: 160px;
+               flex: 1; box-shadow: 0 1px 4px rgba(0,0,0,0.08); text-align: center; }
+  .stat-card .label { font-size: 0.78rem; color: #888; margin-bottom: 4px; }
+  .stat-card .value { font-size: 1.5rem; font-weight: 700; color: #0f3460; }
+  /* --- map --- */
+  .map-wrap { margin-bottom: 24px; }
+  .map-wrap iframe { width: 100%; height: 520px; border: none; border-radius: 8px;
+                     box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  /* --- table --- */
+  .table-wrap { overflow-x: auto; margin-bottom: 32px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.08); font-size: 0.85rem; }
+  thead { background: #0f3460; color: #fff; }
+  th, td { padding: 10px 12px; text-align: left; white-space: nowrap; }
+  th { font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f9fbfd; }
+  tbody tr:hover { background: #eef2f7; }
+  td.explanation { white-space: normal; max-width: 360px; font-size: 0.8rem; color: #555; }
+  .score-high { color: #d32f2f; font-weight: 700; }
+  .score-mid  { color: #e65100; font-weight: 600; }
+  .score-low  { color: #1565c0; }
+  footer { text-align: center; font-size: 0.75rem; color: #aaa; margin-top: 16px; }
+</style>
 </head>
 <body>
+
 <h1>Market Gap Report</h1>
-<p>エリア: tokyo / 生成時刻: 2026-03-21 17:25 / 候補数: 927</p>
-<iframe srcdoc="&lt;!DOCTYPE html&gt;
+<p class="meta">エリア: <strong>tokyo</strong> &nbsp;|&nbsp; 生成日時: 2026-03-22 21:26 &nbsp;|&nbsp; ML R&sup2;: 学習済み</p>
+
+<!-- ===== 統計サマリー ===== -->
+<h2>統計サマリー</h2>
+<div class="stats">
+  <div class="stat-card">
+    <div class="label">総候補数</div>
+    <div class="value">4520</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">平均人口</div>
+    <div class="value">1,669</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">平均スコア</div>
+    <div class="value">0.095</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">平均 Market Gap</div>
+    <div class="value">0.03</div>
+  </div>
+</div>
+
+<!-- ===== マップ ===== -->
+<h2>出店候補マップ（上位20件）</h2>
+<div class="map-wrap">
+  <iframe srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html&gt;
 &lt;head&gt;
     
@@ -27,7 +85,7 @@
             &lt;meta name=&#34;viewport&#34; content=&#34;width=device-width,
                 initial-scale=1.0, maximum-scale=1.0, user-scalable=no&#34; /&gt;
             &lt;style&gt;
-                #map_8a499316c2496bf84569cb3568cd5976 {
+                #map_9f4ad415efa08bd17e83c9e6de325f85 {
                     position: relative;
                     width: 100.0%;
                     height: 100.0%;
@@ -64,16 +122,16 @@
 &lt;body&gt;
     
     
-            &lt;div class=&#34;folium-map&#34; id=&#34;map_8a499316c2496bf84569cb3568cd5976&#34; &gt;&lt;/div&gt;
+            &lt;div class=&#34;folium-map&#34; id=&#34;map_9f4ad415efa08bd17e83c9e6de325f85&#34; &gt;&lt;/div&gt;
         
 &lt;/body&gt;
 &lt;script&gt;
     
     
-            var map_8a499316c2496bf84569cb3568cd5976 = L.map(
-                &#34;map_8a499316c2496bf84569cb3568cd5976&#34;,
+            var map_9f4ad415efa08bd17e83c9e6de325f85 = L.map(
+                &#34;map_9f4ad415efa08bd17e83c9e6de325f85&#34;,
                 {
-                    center: [35.708783612364996, 139.723285667175],
+                    center: [35.68744757510001, 139.74796954543498],
                     crs: L.CRS.EPSG3857,
                     ...{
   &#34;zoom&#34;: 12,
@@ -88,7 +146,7 @@
 
         
     
-            var tile_layer_03e67d9efcbeddb4b59829fcb9a19f7b = L.tileLayer(
+            var tile_layer_6185c39cd2aa900f0fb579224f66efb9 = L.tileLayer(
                 &#34;https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png&#34;,
                 {
   &#34;minZoom&#34;: 0,
@@ -105,17 +163,17 @@
             );
         
     
-            tile_layer_03e67d9efcbeddb4b59829fcb9a19f7b.addTo(map_8a499316c2496bf84569cb3568cd5976);
+            tile_layer_6185c39cd2aa900f0fb579224f66efb9.addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var marker_18aa3e4958ba998f56bf89917540945a = L.marker(
-                [35.698053726, 139.670147038],
+            var marker_4cfebba2a8a37e25d133baf4bb8a13e7 = L.marker(
+                [35.6361193252, 139.7850286847],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_264f67b047aa1cf8b50f3bc80c52aaf7 = L.AwesomeMarkers.icon(
+            var icon_12d48a8bff08416909554149cc609d59 = L.AwesomeMarkers.icon(
                 {
   &#34;markerColor&#34;: &#34;red&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
@@ -126,26 +184,26 @@
             );
         
     
-        var popup_31f51654a99c3946013ffe5639e7d8ab = L.popup({
+        var popup_8c4d17a1c0f098b882cb7c18cf6f94f5 = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_1307c75399e1fb6e32bd8b75f3b0f13d = $(`&lt;div id=&#34;html_1307c75399e1fb6e32bd8b75f3b0f13d&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#1 53394533 × ramen&lt;/b&gt;&lt;br&gt;Score: 1.000&lt;br&gt;人口: 59,740&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.12km&lt;/div&gt;`)[0];
-                popup_31f51654a99c3946013ffe5639e7d8ab.setContent(html_1307c75399e1fb6e32bd8b75f3b0f13d);
+                var html_e43661c7aa2f254159d260d472689b65 = $(`&lt;div id=&#34;html_e43661c7aa2f254159d260d472689b65&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#1 5339366224 / cafe&lt;/b&gt;&lt;br&gt;Score: 1.000&lt;br&gt;人口: 7,277&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.55km&lt;/div&gt;`)[0];
+                popup_8c4d17a1c0f098b882cb7c18cf6f94f5.setContent(html_e43661c7aa2f254159d260d472689b65);
             
         
 
-        marker_18aa3e4958ba998f56bf89917540945a.bindPopup(popup_31f51654a99c3946013ffe5639e7d8ab)
+        marker_4cfebba2a8a37e25d133baf4bb8a13e7.bindPopup(popup_8c4d17a1c0f098b882cb7c18cf6f94f5)
         ;
 
         
     
     
-            marker_18aa3e4958ba998f56bf89917540945a.bindTooltip(
+            marker_4cfebba2a8a37e25d133baf4bb8a13e7.bindTooltip(
                 `&lt;div&gt;
-                     #1 ramen
+                     #1 cafe
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -153,17 +211,17 @@
             );
         
     
-                marker_18aa3e4958ba998f56bf89917540945a.setIcon(icon_264f67b047aa1cf8b50f3bc80c52aaf7);
+                marker_4cfebba2a8a37e25d133baf4bb8a13e7.setIcon(icon_12d48a8bff08416909554149cc609d59);
             
     
-            var marker_07b4906734b2a345b2c934209b51301d = L.marker(
-                [35.6965897276, 139.670279308],
+            var marker_159985f33e8184bb662cd8719912476d = L.marker(
+                [35.6411126205, 139.752763716],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_6b313f8619b0e30c1e62d3cc4408e41e = L.AwesomeMarkers.icon(
+            var icon_5429ec1b3a87468832cdf56c4d7dd6da = L.AwesomeMarkers.icon(
                 {
   &#34;markerColor&#34;: &#34;red&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
@@ -174,26 +232,26 @@
             );
         
     
-        var popup_7d3ce914cf995f04c9f9e1f1e9dea281 = L.popup({
+        var popup_ed5627c7edf0ac03f9979cdcc1de56d0 = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_f5b4204a7ff114f3528d5ded6b6c585e = $(`&lt;div id=&#34;html_f5b4204a7ff114f3528d5ded6b6c585e&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#2 53394533 × cafe&lt;/b&gt;&lt;br&gt;Score: 0.997&lt;br&gt;人口: 59,740&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.15km&lt;/div&gt;`)[0];
-                popup_7d3ce914cf995f04c9f9e1f1e9dea281.setContent(html_f5b4204a7ff114f3528d5ded6b6c585e);
+                var html_1b53c3ef7dca40eb1604231ed75fbe3a = $(`&lt;div id=&#34;html_1b53c3ef7dca40eb1604231ed75fbe3a&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#2 5339366033 / other&lt;/b&gt;&lt;br&gt;Score: 0.924&lt;br&gt;人口: 6,987&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.47km&lt;/div&gt;`)[0];
+                popup_ed5627c7edf0ac03f9979cdcc1de56d0.setContent(html_1b53c3ef7dca40eb1604231ed75fbe3a);
             
         
 
-        marker_07b4906734b2a345b2c934209b51301d.bindPopup(popup_7d3ce914cf995f04c9f9e1f1e9dea281)
+        marker_159985f33e8184bb662cd8719912476d.bindPopup(popup_ed5627c7edf0ac03f9979cdcc1de56d0)
         ;
 
         
     
     
-            marker_07b4906734b2a345b2c934209b51301d.bindTooltip(
+            marker_159985f33e8184bb662cd8719912476d.bindTooltip(
                 `&lt;div&gt;
-                     #2 cafe
+                     #2 other
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -201,19 +259,19 @@
             );
         
     
-                marker_07b4906734b2a345b2c934209b51301d.setIcon(icon_6b313f8619b0e30c1e62d3cc4408e41e);
+                marker_159985f33e8184bb662cd8719912476d.setIcon(icon_5429ec1b3a87468832cdf56c4d7dd6da);
             
     
-            var marker_3bb90ca57d3128e3517cd95550de1968 = L.marker(
-                [35.7218386922, 139.7891718176],
+            var marker_a183c5480d12efb522d1f2fbaf2e82c4 = L.marker(
+                [35.6574433135, 139.7744962173],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_d84dff607c82767d65cc35d25e07ed85 = L.AwesomeMarkers.icon(
+            var icon_832ad300e0f5c6347bc7e093c12460ed = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -222,26 +280,26 @@
             );
         
     
-        var popup_5a6f1d710563492b58c69f17e96e86e0 = L.popup({
+        var popup_0b6bcff08700c073ad14dd1cc601538e = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_29eb1c6cad33ebc636832ea422c38e22 = $(`&lt;div id=&#34;html_29eb1c6cad33ebc636832ea422c38e22&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#3 53394663 × chinese&lt;/b&gt;&lt;br&gt;Score: 0.981&lt;br&gt;人口: 64,558&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.52km&lt;/div&gt;`)[0];
-                popup_5a6f1d710563492b58c69f17e96e86e0.setContent(html_29eb1c6cad33ebc636832ea422c38e22);
+                var html_ef381feebd699b5d2cb59568ea56a55e = $(`&lt;div id=&#34;html_ef381feebd699b5d2cb59568ea56a55e&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#3 5339368144 / other&lt;/b&gt;&lt;br&gt;Score: 0.766&lt;br&gt;人口: 5,809&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.21km&lt;/div&gt;`)[0];
+                popup_0b6bcff08700c073ad14dd1cc601538e.setContent(html_ef381feebd699b5d2cb59568ea56a55e);
             
         
 
-        marker_3bb90ca57d3128e3517cd95550de1968.bindPopup(popup_5a6f1d710563492b58c69f17e96e86e0)
+        marker_a183c5480d12efb522d1f2fbaf2e82c4.bindPopup(popup_0b6bcff08700c073ad14dd1cc601538e)
         ;
 
         
     
     
-            marker_3bb90ca57d3128e3517cd95550de1968.bindTooltip(
+            marker_a183c5480d12efb522d1f2fbaf2e82c4.bindTooltip(
                 `&lt;div&gt;
-                     #3 chinese
+                     #3 other
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -249,19 +307,19 @@
             );
         
     
-                marker_3bb90ca57d3128e3517cd95550de1968.setIcon(icon_d84dff607c82767d65cc35d25e07ed85);
+                marker_a183c5480d12efb522d1f2fbaf2e82c4.setIcon(icon_832ad300e0f5c6347bc7e093c12460ed);
             
     
-            var marker_06fd6bdeccb7be0280c447af9a8fdd06 = L.marker(
-                [35.7228352854, 139.7906069335],
+            var marker_912f0cf92a943a4e985f02351aaf3905 = L.marker(
+                [35.6629351816, 139.7842835002],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_f0a464cf631d9dd47ea1b30e56e9a37f = L.AwesomeMarkers.icon(
+            var icon_b57b896f355521bb4184744e06b271ce = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -270,24 +328,24 @@
             );
         
     
-        var popup_1856b010bd22c7ca1b19f4cf48e1b839 = L.popup({
+        var popup_9e6fcc11e71a4d13ba56c1a9aaf5040c = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_891dae427acf573954968153cf7d5e3f = $(`&lt;div id=&#34;html_891dae427acf573954968153cf7d5e3f&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#4 53394663 × cafe&lt;/b&gt;&lt;br&gt;Score: 0.980&lt;br&gt;人口: 64,558&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.69km&lt;/div&gt;`)[0];
-                popup_1856b010bd22c7ca1b19f4cf48e1b839.setContent(html_891dae427acf573954968153cf7d5e3f);
+                var html_81098998292d6d0b974c790149d3779f = $(`&lt;div id=&#34;html_81098998292d6d0b974c790149d3779f&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#4 5339369241 / cafe&lt;/b&gt;&lt;br&gt;Score: 0.741&lt;br&gt;人口: 5,593&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.22km&lt;/div&gt;`)[0];
+                popup_9e6fcc11e71a4d13ba56c1a9aaf5040c.setContent(html_81098998292d6d0b974c790149d3779f);
             
         
 
-        marker_06fd6bdeccb7be0280c447af9a8fdd06.bindPopup(popup_1856b010bd22c7ca1b19f4cf48e1b839)
+        marker_912f0cf92a943a4e985f02351aaf3905.bindPopup(popup_9e6fcc11e71a4d13ba56c1a9aaf5040c)
         ;
 
         
     
     
-            marker_06fd6bdeccb7be0280c447af9a8fdd06.bindTooltip(
+            marker_912f0cf92a943a4e985f02351aaf3905.bindTooltip(
                 `&lt;div&gt;
                      #4 cafe
                  &lt;/div&gt;`,
@@ -297,19 +355,19 @@
             );
         
     
-                marker_06fd6bdeccb7be0280c447af9a8fdd06.setIcon(icon_f0a464cf631d9dd47ea1b30e56e9a37f);
+                marker_912f0cf92a943a4e985f02351aaf3905.setIcon(icon_b57b896f355521bb4184744e06b271ce);
             
     
-            var marker_cc842202b5354ffccce4d2c512308487 = L.marker(
-                [35.7295648185, 139.7910516234],
+            var marker_8587392677c3f82925c73e50e6ba6f68 = L.marker(
+                [35.6403077916, 139.7454168708],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_63037bfe3f1e9efa78f85cf2c584adb8 = L.AwesomeMarkers.icon(
+            var icon_1b87b688425563f48be3bd86295a68a7 = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -318,26 +376,26 @@
             );
         
     
-        var popup_bbeee56835bc1badefba8116e891868d = L.popup({
+        var popup_ccb3c53f697e8bd5dda4434227d0f14e = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_73bf2a5fbf7ccde290d7ee737700e1c0 = $(`&lt;div id=&#34;html_73bf2a5fbf7ccde290d7ee737700e1c0&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#5 53394673 × chinese&lt;/b&gt;&lt;br&gt;Score: 0.961&lt;br&gt;人口: 58,982&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.04km&lt;/div&gt;`)[0];
-                popup_bbeee56835bc1badefba8116e891868d.setContent(html_73bf2a5fbf7ccde290d7ee737700e1c0);
+                var html_9773d0edfd51ab45b1eb5e6bc1995ff2 = $(`&lt;div id=&#34;html_9773d0edfd51ab45b1eb5e6bc1995ff2&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#5 5339356943 / italian&lt;/b&gt;&lt;br&gt;Score: 0.697&lt;br&gt;人口: 5,580&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.52km&lt;/div&gt;`)[0];
+                popup_ccb3c53f697e8bd5dda4434227d0f14e.setContent(html_9773d0edfd51ab45b1eb5e6bc1995ff2);
             
         
 
-        marker_cc842202b5354ffccce4d2c512308487.bindPopup(popup_bbeee56835bc1badefba8116e891868d)
+        marker_8587392677c3f82925c73e50e6ba6f68.bindPopup(popup_ccb3c53f697e8bd5dda4434227d0f14e)
         ;
 
         
     
     
-            marker_cc842202b5354ffccce4d2c512308487.bindTooltip(
+            marker_8587392677c3f82925c73e50e6ba6f68.bindTooltip(
                 `&lt;div&gt;
-                     #5 chinese
+                     #5 italian
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -345,19 +403,19 @@
             );
         
     
-                marker_cc842202b5354ffccce4d2c512308487.setIcon(icon_63037bfe3f1e9efa78f85cf2c584adb8);
+                marker_8587392677c3f82925c73e50e6ba6f68.setIcon(icon_1b87b688425563f48be3bd86295a68a7);
             
     
-            var marker_7599bef920deb84926a641a6816e5dd9 = L.marker(
-                [35.6777049255, 139.6709666767],
+            var marker_e81bc5151b270694ad3eb2c949e82de8 = L.marker(
+                [35.6694636399, 139.785222324],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_c7f9ea31cfb86445b1b218619fb80a5c = L.AwesomeMarkers.icon(
+            var icon_3743932931373af70b7516b8d43d8bf1 = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -366,26 +424,26 @@
             );
         
     
-        var popup_ae4f5a15f1915e218d6ace88e6fc6f51 = L.popup({
+        var popup_92e107184cf7f1cd9e11c5d0b2349db4 = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_0f7fe9d9467153dd4bf99c24c59de819 = $(`&lt;div id=&#34;html_0f7fe9d9467153dd4bf99c24c59de819&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#6 53394513 × yakiniku&lt;/b&gt;&lt;br&gt;Score: 0.957&lt;br&gt;人口: 61,000&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.48km&lt;/div&gt;`)[0];
-                popup_ae4f5a15f1915e218d6ace88e6fc6f51.setContent(html_0f7fe9d9467153dd4bf99c24c59de819);
+                var html_07e780fef628e5077ea24bf0808633ea = $(`&lt;div id=&#34;html_07e780fef628e5077ea24bf0808633ea&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#6 5339460224 / italian&lt;/b&gt;&lt;br&gt;Score: 0.594&lt;br&gt;人口: 5,450&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.52km&lt;/div&gt;`)[0];
+                popup_92e107184cf7f1cd9e11c5d0b2349db4.setContent(html_07e780fef628e5077ea24bf0808633ea);
             
         
 
-        marker_7599bef920deb84926a641a6816e5dd9.bindPopup(popup_ae4f5a15f1915e218d6ace88e6fc6f51)
+        marker_e81bc5151b270694ad3eb2c949e82de8.bindPopup(popup_92e107184cf7f1cd9e11c5d0b2349db4)
         ;
 
         
     
     
-            marker_7599bef920deb84926a641a6816e5dd9.bindTooltip(
+            marker_e81bc5151b270694ad3eb2c949e82de8.bindTooltip(
                 `&lt;div&gt;
-                     #6 yakiniku
+                     #6 italian
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -393,19 +451,19 @@
             );
         
     
-                marker_7599bef920deb84926a641a6816e5dd9.setIcon(icon_c7f9ea31cfb86445b1b218619fb80a5c);
+                marker_e81bc5151b270694ad3eb2c949e82de8.setIcon(icon_3743932931373af70b7516b8d43d8bf1);
             
     
-            var marker_a974c26f915d8e570efb4880f48093e1 = L.marker(
-                [35.7331310321, 139.7787983511],
+            var marker_ca83f9b5f8fd5d12602949cf2fd0f3c2 = L.marker(
+                [35.6925677036, 139.7125906033],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_55e2460d527ac4a656d9b70eb451e3db = L.AwesomeMarkers.icon(
+            var icon_ed8e5e4bd2cbf080215c34d055833087 = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -414,26 +472,26 @@
             );
         
     
-        var popup_b806b9822a5a9d863533a4052691438b = L.popup({
+        var popup_903274d3af784877f04053d2b894af0a = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_0fe39d3fa9e8743f1eb0f1bc2e8e7055 = $(`&lt;div id=&#34;html_0fe39d3fa9e8743f1eb0f1bc2e8e7055&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#7 53394672 × ramen&lt;/b&gt;&lt;br&gt;Score: 0.929&lt;br&gt;人口: 59,168&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.15km&lt;/div&gt;`)[0];
-                popup_b806b9822a5a9d863533a4052691438b.setContent(html_0fe39d3fa9e8743f1eb0f1bc2e8e7055);
+                var html_bac38bc148b98bb99fc4207447318e8f = $(`&lt;div id=&#34;html_bac38bc148b98bb99fc4207447318e8f&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#7 5339453711 / izakaya&lt;/b&gt;&lt;br&gt;Score: 0.583&lt;br&gt;人口: 5,017&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.47km&lt;/div&gt;`)[0];
+                popup_903274d3af784877f04053d2b894af0a.setContent(html_bac38bc148b98bb99fc4207447318e8f);
             
         
 
-        marker_a974c26f915d8e570efb4880f48093e1.bindPopup(popup_b806b9822a5a9d863533a4052691438b)
+        marker_ca83f9b5f8fd5d12602949cf2fd0f3c2.bindPopup(popup_903274d3af784877f04053d2b894af0a)
         ;
 
         
     
     
-            marker_a974c26f915d8e570efb4880f48093e1.bindTooltip(
+            marker_ca83f9b5f8fd5d12602949cf2fd0f3c2.bindTooltip(
                 `&lt;div&gt;
-                     #7 ramen
+                     #7 izakaya
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -441,19 +499,19 @@
             );
         
     
-                marker_a974c26f915d8e570efb4880f48093e1.setIcon(icon_55e2460d527ac4a656d9b70eb451e3db);
+                marker_ca83f9b5f8fd5d12602949cf2fd0f3c2.setIcon(icon_ed8e5e4bd2cbf080215c34d055833087);
             
     
-            var marker_55dfa3280f3509c82a4e9d7cee3692e1 = L.marker(
-                [35.7250814691, 139.782044235],
+            var marker_c528528bc572fa3115caa4c885b3ee0c = L.marker(
+                [35.647225398, 139.7162168443],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_b1a77e1d708f6abf62864ca2379e7ed4 = L.AwesomeMarkers.icon(
+            var icon_0f85b2b001541ecb9c7c8c67391d656f = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -462,26 +520,26 @@
             );
         
     
-        var popup_d635cf9b522ba982bbdcfc5558e155f3 = L.popup({
+        var popup_edd583af2071885f7e7e712fee9d5c84 = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_cc783267813103326ddcd6d2ffb07377 = $(`&lt;div id=&#34;html_cc783267813103326ddcd6d2ffb07377&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#8 53394672 × chinese&lt;/b&gt;&lt;br&gt;Score: 0.922&lt;br&gt;人口: 59,168&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.54km&lt;/div&gt;`)[0];
-                popup_d635cf9b522ba982bbdcfc5558e155f3.setContent(html_cc783267813103326ddcd6d2ffb07377);
+                var html_9902f7f58ea380acd108353ca3fdd47e = $(`&lt;div id=&#34;html_9902f7f58ea380acd108353ca3fdd47e&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#8 5339357732 / yakiniku&lt;/b&gt;&lt;br&gt;Score: 0.575&lt;br&gt;人口: 4,923&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.56km&lt;/div&gt;`)[0];
+                popup_edd583af2071885f7e7e712fee9d5c84.setContent(html_9902f7f58ea380acd108353ca3fdd47e);
             
         
 
-        marker_55dfa3280f3509c82a4e9d7cee3692e1.bindPopup(popup_d635cf9b522ba982bbdcfc5558e155f3)
+        marker_c528528bc572fa3115caa4c885b3ee0c.bindPopup(popup_edd583af2071885f7e7e712fee9d5c84)
         ;
 
         
     
     
-            marker_55dfa3280f3509c82a4e9d7cee3692e1.bindTooltip(
+            marker_c528528bc572fa3115caa4c885b3ee0c.bindTooltip(
                 `&lt;div&gt;
-                     #8 chinese
+                     #8 yakiniku
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -489,19 +547,19 @@
             );
         
     
-                marker_55dfa3280f3509c82a4e9d7cee3692e1.setIcon(icon_b1a77e1d708f6abf62864ca2379e7ed4);
+                marker_c528528bc572fa3115caa4c885b3ee0c.setIcon(icon_0f85b2b001541ecb9c7c8c67391d656f);
             
     
-            var marker_f96126ca73d61c1e632218828d23a398 = L.marker(
-                [35.7155671014, 139.6726747288],
+            var marker_40748dbb316abe4160be28f43eeb3c06 = L.marker(
+                [35.7346139365, 139.7277278999],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_c3216b17e302a18ebbecd1867e336202 = L.AwesomeMarkers.icon(
+            var icon_bee00f93246a932efab49d07289ecc6a = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -510,24 +568,24 @@
             );
         
     
-        var popup_ac9263aa49df9189e4ed48a9d8fa2893 = L.popup({
+        var popup_9e9b1a4a77bba16175310a885e32515e = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_605ca13401c4ea1706b137face6eedd4 = $(`&lt;div id=&#34;html_605ca13401c4ea1706b137face6eedd4&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#9 53394553 × chinese&lt;/b&gt;&lt;br&gt;Score: 0.918&lt;br&gt;人口: 54,560&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.02km&lt;/div&gt;`)[0];
-                popup_ac9263aa49df9189e4ed48a9d8fa2893.setContent(html_605ca13401c4ea1706b137face6eedd4);
+                var html_d25fad897e8f622b13ae4ec0a59d5225 = $(`&lt;div id=&#34;html_d25fad897e8f622b13ae4ec0a59d5225&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#9 5339458811 / chinese&lt;/b&gt;&lt;br&gt;Score: 0.555&lt;br&gt;人口: 4,568&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.10km&lt;/div&gt;`)[0];
+                popup_9e9b1a4a77bba16175310a885e32515e.setContent(html_d25fad897e8f622b13ae4ec0a59d5225);
             
         
 
-        marker_f96126ca73d61c1e632218828d23a398.bindPopup(popup_ac9263aa49df9189e4ed48a9d8fa2893)
+        marker_40748dbb316abe4160be28f43eeb3c06.bindPopup(popup_9e9b1a4a77bba16175310a885e32515e)
         ;
 
         
     
     
-            marker_f96126ca73d61c1e632218828d23a398.bindTooltip(
+            marker_40748dbb316abe4160be28f43eeb3c06.bindTooltip(
                 `&lt;div&gt;
                      #9 chinese
                  &lt;/div&gt;`,
@@ -537,19 +595,19 @@
             );
         
     
-                marker_f96126ca73d61c1e632218828d23a398.setIcon(icon_c3216b17e302a18ebbecd1867e336202);
+                marker_40748dbb316abe4160be28f43eeb3c06.setIcon(icon_bee00f93246a932efab49d07289ecc6a);
             
     
-            var marker_056d6c82d35001fc260e23127167b89a = L.marker(
-                [35.6908712014, 139.6805383902],
+            var marker_6bdbb3dcaa0e27e78c82bba95f5e0eea = L.marker(
+                [35.6466288758, 139.7398226458],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_0fba9b7c74b83f2b534ec3623cbfbe51 = L.AwesomeMarkers.icon(
+            var icon_a3d423a2f92f831fbcb69eb37dd657fe = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -558,24 +616,24 @@
             );
         
     
-        var popup_203fff85da3a0ddff9917701917a2838 = L.popup({
+        var popup_9130bfd799d44cc54ed4ec28e189484b = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_b9b0a9d61fb4564775d037cacd4aff3f = $(`&lt;div id=&#34;html_b9b0a9d61fb4564775d037cacd4aff3f&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#10 53394524 × sushi&lt;/b&gt;&lt;br&gt;Score: 0.909&lt;br&gt;人口: 64,356&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.36km&lt;/div&gt;`)[0];
-                popup_203fff85da3a0ddff9917701917a2838.setContent(html_b9b0a9d61fb4564775d037cacd4aff3f);
+                var html_dbffcb2ec7916f20a326a3b14e10b343 = $(`&lt;div id=&#34;html_dbffcb2ec7916f20a326a3b14e10b343&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#10 5339357931 / sushi&lt;/b&gt;&lt;br&gt;Score: 0.550&lt;br&gt;人口: 4,871&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.66km&lt;/div&gt;`)[0];
+                popup_9130bfd799d44cc54ed4ec28e189484b.setContent(html_dbffcb2ec7916f20a326a3b14e10b343);
             
         
 
-        marker_056d6c82d35001fc260e23127167b89a.bindPopup(popup_203fff85da3a0ddff9917701917a2838)
+        marker_6bdbb3dcaa0e27e78c82bba95f5e0eea.bindPopup(popup_9130bfd799d44cc54ed4ec28e189484b)
         ;
 
         
     
     
-            marker_056d6c82d35001fc260e23127167b89a.bindTooltip(
+            marker_6bdbb3dcaa0e27e78c82bba95f5e0eea.bindTooltip(
                 `&lt;div&gt;
                      #10 sushi
                  &lt;/div&gt;`,
@@ -585,19 +643,19 @@
             );
         
     
-                marker_056d6c82d35001fc260e23127167b89a.setIcon(icon_0fba9b7c74b83f2b534ec3623cbfbe51);
+                marker_6bdbb3dcaa0e27e78c82bba95f5e0eea.setIcon(icon_a3d423a2f92f831fbcb69eb37dd657fe);
             
     
-            var marker_9a642193664ad9bfb2289f52e2e7c07a = L.marker(
-                [35.6599583914, 139.7775744663],
+            var marker_a61bd7afc56be927162e9741b995f65c = L.marker(
+                [35.6475118161, 139.7392246054],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_a1005d1b3c591f3b53894a9904fe2edf = L.AwesomeMarkers.icon(
+            var icon_c363c0982ecf75b3a39ae682b8010051 = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -606,26 +664,26 @@
             );
         
     
-        var popup_02310b0f6d258bd9ab6c7435272a47de = L.popup({
+        var popup_e64810466f712b3457894ffe4452a441 = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_701c60675a04dfbc30a38b831ab70c25 = $(`&lt;div id=&#34;html_701c60675a04dfbc30a38b831ab70c25&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#11 53393692 × ramen&lt;/b&gt;&lt;br&gt;Score: 0.905&lt;br&gt;人口: 63,362&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.19km&lt;/div&gt;`)[0];
-                popup_02310b0f6d258bd9ab6c7435272a47de.setContent(html_701c60675a04dfbc30a38b831ab70c25);
+                var html_19cf53f9f38b3f1d3008ffb338d17da7 = $(`&lt;div id=&#34;html_19cf53f9f38b3f1d3008ffb338d17da7&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#11 5339357931 / chinese&lt;/b&gt;&lt;br&gt;Score: 0.549&lt;br&gt;人口: 4,871&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.69km&lt;/div&gt;`)[0];
+                popup_e64810466f712b3457894ffe4452a441.setContent(html_19cf53f9f38b3f1d3008ffb338d17da7);
             
         
 
-        marker_9a642193664ad9bfb2289f52e2e7c07a.bindPopup(popup_02310b0f6d258bd9ab6c7435272a47de)
+        marker_a61bd7afc56be927162e9741b995f65c.bindPopup(popup_e64810466f712b3457894ffe4452a441)
         ;
 
         
     
     
-            marker_9a642193664ad9bfb2289f52e2e7c07a.bindTooltip(
+            marker_a61bd7afc56be927162e9741b995f65c.bindTooltip(
                 `&lt;div&gt;
-                     #11 ramen
+                     #11 chinese
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -633,19 +691,19 @@
             );
         
     
-                marker_9a642193664ad9bfb2289f52e2e7c07a.setIcon(icon_a1005d1b3c591f3b53894a9904fe2edf);
+                marker_a61bd7afc56be927162e9741b995f65c.setIcon(icon_c363c0982ecf75b3a39ae682b8010051);
             
     
-            var marker_4452f53e0835f812b74458630ff65835 = L.marker(
-                [35.7163733822, 139.6720278067],
+            var marker_ed875053fcb84bb8cf41acc97ed81aeb = L.marker(
+                [35.6472568632, 139.7399112241],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_7640442ef801e027d7a89a41689f1130 = L.AwesomeMarkers.icon(
+            var icon_010c96e8a4079c4b53e2e613699f90ef = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -654,26 +712,26 @@
             );
         
     
-        var popup_22ed4314661a5c13c8b2d726b5d6d09c = L.popup({
+        var popup_d6ac2f974d93c00be4c50539fb88c3f8 = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_63786fce7b291e5b80a02238733d0510 = $(`&lt;div id=&#34;html_63786fce7b291e5b80a02238733d0510&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#12 53394553 × sushi&lt;/b&gt;&lt;br&gt;Score: 0.887&lt;br&gt;人口: 54,560&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.08km&lt;/div&gt;`)[0];
-                popup_22ed4314661a5c13c8b2d726b5d6d09c.setContent(html_63786fce7b291e5b80a02238733d0510);
+                var html_a47e1345ee14115d76708042841ff24f = $(`&lt;div id=&#34;html_a47e1345ee14115d76708042841ff24f&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#12 5339357931 / italian&lt;/b&gt;&lt;br&gt;Score: 0.549&lt;br&gt;人口: 4,871&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.71km&lt;/div&gt;`)[0];
+                popup_d6ac2f974d93c00be4c50539fb88c3f8.setContent(html_a47e1345ee14115d76708042841ff24f);
             
         
 
-        marker_4452f53e0835f812b74458630ff65835.bindPopup(popup_22ed4314661a5c13c8b2d726b5d6d09c)
+        marker_ed875053fcb84bb8cf41acc97ed81aeb.bindPopup(popup_d6ac2f974d93c00be4c50539fb88c3f8)
         ;
 
         
     
     
-            marker_4452f53e0835f812b74458630ff65835.bindTooltip(
+            marker_ed875053fcb84bb8cf41acc97ed81aeb.bindTooltip(
                 `&lt;div&gt;
-                     #12 sushi
+                     #12 italian
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -681,19 +739,19 @@
             );
         
     
-                marker_4452f53e0835f812b74458630ff65835.setIcon(icon_7640442ef801e027d7a89a41689f1130);
+                marker_ed875053fcb84bb8cf41acc97ed81aeb.setIcon(icon_010c96e8a4079c4b53e2e613699f90ef);
             
     
-            var marker_ce824dfec60814ce66753899555e9c1f = L.marker(
-                [35.7101287593, 139.6702473763],
+            var marker_a3997aa33be90a7ecf5b899adfe4336d = L.marker(
+                [35.7341272841, 139.7262205475],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_c3446c2d919f97ec4069c7cb57659cd5 = L.AwesomeMarkers.icon(
+            var icon_c37a23c00e0633ceea2fbc87b524fd85 = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -702,26 +760,26 @@
             );
         
     
-        var popup_0dac12bd57a9e8f7c9c2625fbab2d673 = L.popup({
+        var popup_8f3e31c0a075085dd8fa61cf8f3a8bd3 = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_3de1187ebe3206924f04c3eddb650fc4 = $(`&lt;div id=&#34;html_3de1187ebe3206924f04c3eddb650fc4&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#13 53394553 × italian&lt;/b&gt;&lt;br&gt;Score: 0.872&lt;br&gt;人口: 54,560&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.63km&lt;/div&gt;`)[0];
-                popup_0dac12bd57a9e8f7c9c2625fbab2d673.setContent(html_3de1187ebe3206924f04c3eddb650fc4);
+                var html_118ccbb0fb9ca739ffb07d82fbb8b56d = $(`&lt;div id=&#34;html_118ccbb0fb9ca739ffb07d82fbb8b56d&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#13 5339458811 / sushi&lt;/b&gt;&lt;br&gt;Score: 0.548&lt;br&gt;人口: 4,568&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.21km&lt;/div&gt;`)[0];
+                popup_8f3e31c0a075085dd8fa61cf8f3a8bd3.setContent(html_118ccbb0fb9ca739ffb07d82fbb8b56d);
             
         
 
-        marker_ce824dfec60814ce66753899555e9c1f.bindPopup(popup_0dac12bd57a9e8f7c9c2625fbab2d673)
+        marker_a3997aa33be90a7ecf5b899adfe4336d.bindPopup(popup_8f3e31c0a075085dd8fa61cf8f3a8bd3)
         ;
 
         
     
     
-            marker_ce824dfec60814ce66753899555e9c1f.bindTooltip(
+            marker_a3997aa33be90a7ecf5b899adfe4336d.bindTooltip(
                 `&lt;div&gt;
-                     #13 italian
+                     #13 sushi
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -729,19 +787,19 @@
             );
         
     
-                marker_ce824dfec60814ce66753899555e9c1f.setIcon(icon_c3446c2d919f97ec4069c7cb57659cd5);
+                marker_a3997aa33be90a7ecf5b899adfe4336d.setIcon(icon_c37a23c00e0633ceea2fbc87b524fd85);
             
     
-            var marker_5c4fe7c2f6a714f265a257e5cb837d7a = L.marker(
-                [35.6385913522, 139.6741382582],
+            var marker_13b16160b52b9c08fde98d45b6c92390 = L.marker(
+                [35.7338909238, 139.7262972172],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_558de0396314b7ecac6bbe2282b63bea = L.AwesomeMarkers.icon(
+            var icon_bfcceaf5e9748c5c3df79afa0b856a7c = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -750,26 +808,26 @@
             );
         
     
-        var popup_c928c1b84910a228a4d4bdff216db6ee = L.popup({
+        var popup_0ac9cfe06bb1a6bac449e1a121b34c99 = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_49f09402c81c5683bcc3c19572520adf = $(`&lt;div id=&#34;html_49f09402c81c5683bcc3c19572520adf&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#14 53393563 × sushi&lt;/b&gt;&lt;br&gt;Score: 0.844&lt;br&gt;人口: 55,354&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.67km&lt;/div&gt;`)[0];
-                popup_c928c1b84910a228a4d4bdff216db6ee.setContent(html_49f09402c81c5683bcc3c19572520adf);
+                var html_e93124c9395d2ffeb2d61a16cf6c6a60 = $(`&lt;div id=&#34;html_e93124c9395d2ffeb2d61a16cf6c6a60&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#14 5339458811 / cafe&lt;/b&gt;&lt;br&gt;Score: 0.548&lt;br&gt;人口: 4,568&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.22km&lt;/div&gt;`)[0];
+                popup_0ac9cfe06bb1a6bac449e1a121b34c99.setContent(html_e93124c9395d2ffeb2d61a16cf6c6a60);
             
         
 
-        marker_5c4fe7c2f6a714f265a257e5cb837d7a.bindPopup(popup_c928c1b84910a228a4d4bdff216db6ee)
+        marker_13b16160b52b9c08fde98d45b6c92390.bindPopup(popup_0ac9cfe06bb1a6bac449e1a121b34c99)
         ;
 
         
     
     
-            marker_5c4fe7c2f6a714f265a257e5cb837d7a.bindTooltip(
+            marker_13b16160b52b9c08fde98d45b6c92390.bindTooltip(
                 `&lt;div&gt;
-                     #14 sushi
+                     #14 cafe
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -777,19 +835,19 @@
             );
         
     
-                marker_5c4fe7c2f6a714f265a257e5cb837d7a.setIcon(icon_558de0396314b7ecac6bbe2282b63bea);
+                marker_13b16160b52b9c08fde98d45b6c92390.setIcon(icon_bfcceaf5e9748c5c3df79afa0b856a7c);
             
     
-            var marker_2105b7c1a780648168c1fa889f2b27fd = L.marker(
-                [35.7260113718, 139.7616598144],
+            var marker_fd447f4ee1a2ca2c7b11a4c071f2939b = L.marker(
+                [35.7334321017, 139.7268599657],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_0570b8010213dc6a6f04f5e4c3a5d919 = L.AwesomeMarkers.icon(
+            var icon_3e99efb70b88776f0bd334d9242b756a = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -798,26 +856,26 @@
             );
         
     
-        var popup_a4434a444fabd5e70fd3daa6f221d3de = L.popup({
+        var popup_77aa086778a0c290b6c064b4171c144d = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_59b1d5dc84067b11df2192ca11575be7 = $(`&lt;div id=&#34;html_59b1d5dc84067b11df2192ca11575be7&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#15 53394670 × izakaya&lt;/b&gt;&lt;br&gt;Score: 0.811&lt;br&gt;人口: 55,426&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.15km&lt;/div&gt;`)[0];
-                popup_a4434a444fabd5e70fd3daa6f221d3de.setContent(html_59b1d5dc84067b11df2192ca11575be7);
+                var html_274dc3c6ce1131d7a3bea2e5dfb73765 = $(`&lt;div id=&#34;html_274dc3c6ce1131d7a3bea2e5dfb73765&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#15 5339458811 / yakiniku&lt;/b&gt;&lt;br&gt;Score: 0.547&lt;br&gt;人口: 4,568&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.24km&lt;/div&gt;`)[0];
+                popup_77aa086778a0c290b6c064b4171c144d.setContent(html_274dc3c6ce1131d7a3bea2e5dfb73765);
             
         
 
-        marker_2105b7c1a780648168c1fa889f2b27fd.bindPopup(popup_a4434a444fabd5e70fd3daa6f221d3de)
+        marker_fd447f4ee1a2ca2c7b11a4c071f2939b.bindPopup(popup_77aa086778a0c290b6c064b4171c144d)
         ;
 
         
     
     
-            marker_2105b7c1a780648168c1fa889f2b27fd.bindTooltip(
+            marker_fd447f4ee1a2ca2c7b11a4c071f2939b.bindTooltip(
                 `&lt;div&gt;
-                     #15 izakaya
+                     #15 yakiniku
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -825,19 +883,163 @@
             );
         
     
-                marker_2105b7c1a780648168c1fa889f2b27fd.setIcon(icon_0570b8010213dc6a6f04f5e4c3a5d919);
+                marker_fd447f4ee1a2ca2c7b11a4c071f2939b.setIcon(icon_3e99efb70b88776f0bd334d9242b756a);
             
     
-            var marker_f953e215cfc29201d27f0102470382e6 = L.marker(
+            var marker_6dac91cae71a5a5a81aeea1b412d7b36 = L.marker(
+                [35.713158381, 139.7516322952],
+                {
+}
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
+        
+    
+            var icon_2cc3753e6763b243805e65c4ee187ae6 = L.AwesomeMarkers.icon(
+                {
+  &#34;markerColor&#34;: &#34;orange&#34;,
+  &#34;iconColor&#34;: &#34;white&#34;,
+  &#34;icon&#34;: &#34;info-sign&#34;,
+  &#34;prefix&#34;: &#34;glyphicon&#34;,
+  &#34;extraClasses&#34;: &#34;fa-rotate-0&#34;,
+}
+            );
+        
+    
+        var popup_86b481055ac865518e6efff1b4a1d74e = L.popup({
+  &#34;maxWidth&#34;: 300,
+});
+
+        
+            
+                var html_0be20f8896a5032ab98d3de4ae1c2038 = $(`&lt;div id=&#34;html_0be20f8896a5032ab98d3de4ae1c2038&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#16 5339465031 / italian&lt;/b&gt;&lt;br&gt;Score: 0.533&lt;br&gt;人口: 4,753&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.42km&lt;/div&gt;`)[0];
+                popup_86b481055ac865518e6efff1b4a1d74e.setContent(html_0be20f8896a5032ab98d3de4ae1c2038);
+            
+        
+
+        marker_6dac91cae71a5a5a81aeea1b412d7b36.bindPopup(popup_86b481055ac865518e6efff1b4a1d74e)
+        ;
+
+        
+    
+    
+            marker_6dac91cae71a5a5a81aeea1b412d7b36.bindTooltip(
+                `&lt;div&gt;
+                     #16 italian
+                 &lt;/div&gt;`,
+                {
+  &#34;sticky&#34;: true,
+}
+            );
+        
+    
+                marker_6dac91cae71a5a5a81aeea1b412d7b36.setIcon(icon_2cc3753e6763b243805e65c4ee187ae6);
+            
+    
+            var marker_bbe10afc8c4962fb65ed3c73d55b13c0 = L.marker(
+                [35.7130964361, 139.7513556545],
+                {
+}
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
+        
+    
+            var icon_90e56813832c3d6e2b383daf68ca12b5 = L.AwesomeMarkers.icon(
+                {
+  &#34;markerColor&#34;: &#34;orange&#34;,
+  &#34;iconColor&#34;: &#34;white&#34;,
+  &#34;icon&#34;: &#34;info-sign&#34;,
+  &#34;prefix&#34;: &#34;glyphicon&#34;,
+  &#34;extraClasses&#34;: &#34;fa-rotate-0&#34;,
+}
+            );
+        
+    
+        var popup_b09d8d916fd3b1225294c6454855370d = L.popup({
+  &#34;maxWidth&#34;: 300,
+});
+
+        
+            
+                var html_1c0aa29779a393ce06c5f6a22653a4cd = $(`&lt;div id=&#34;html_1c0aa29779a393ce06c5f6a22653a4cd&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#17 5339465031 / other&lt;/b&gt;&lt;br&gt;Score: 0.533&lt;br&gt;人口: 4,753&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.42km&lt;/div&gt;`)[0];
+                popup_b09d8d916fd3b1225294c6454855370d.setContent(html_1c0aa29779a393ce06c5f6a22653a4cd);
+            
+        
+
+        marker_bbe10afc8c4962fb65ed3c73d55b13c0.bindPopup(popup_b09d8d916fd3b1225294c6454855370d)
+        ;
+
+        
+    
+    
+            marker_bbe10afc8c4962fb65ed3c73d55b13c0.bindTooltip(
+                `&lt;div&gt;
+                     #17 other
+                 &lt;/div&gt;`,
+                {
+  &#34;sticky&#34;: true,
+}
+            );
+        
+    
+                marker_bbe10afc8c4962fb65ed3c73d55b13c0.setIcon(icon_90e56813832c3d6e2b383daf68ca12b5);
+            
+    
+            var marker_d1f85e09fcf531d0ef7c8520ae6de737 = L.marker(
+                [35.7330216133, 139.758639787],
+                {
+}
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
+        
+    
+            var icon_906c41b8b5d4157df243f93408510df9 = L.AwesomeMarkers.icon(
+                {
+  &#34;markerColor&#34;: &#34;orange&#34;,
+  &#34;iconColor&#34;: &#34;white&#34;,
+  &#34;icon&#34;: &#34;info-sign&#34;,
+  &#34;prefix&#34;: &#34;glyphicon&#34;,
+  &#34;extraClasses&#34;: &#34;fa-rotate-0&#34;,
+}
+            );
+        
+    
+        var popup_e435a498fe1baad53268adb5ef27ca1d = L.popup({
+  &#34;maxWidth&#34;: 300,
+});
+
+        
+            
+                var html_bdeb1f2328717721f1d9ed719fbd3630 = $(`&lt;div id=&#34;html_bdeb1f2328717721f1d9ed719fbd3630&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#18 5339467043 / cafe&lt;/b&gt;&lt;br&gt;Score: 0.521&lt;br&gt;人口: 4,665&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.58km&lt;/div&gt;`)[0];
+                popup_e435a498fe1baad53268adb5ef27ca1d.setContent(html_bdeb1f2328717721f1d9ed719fbd3630);
+            
+        
+
+        marker_d1f85e09fcf531d0ef7c8520ae6de737.bindPopup(popup_e435a498fe1baad53268adb5ef27ca1d)
+        ;
+
+        
+    
+    
+            marker_d1f85e09fcf531d0ef7c8520ae6de737.bindTooltip(
+                `&lt;div&gt;
+                     #18 cafe
+                 &lt;/div&gt;`,
+                {
+  &#34;sticky&#34;: true,
+}
+            );
+        
+    
+                marker_d1f85e09fcf531d0ef7c8520ae6de737.setIcon(icon_906c41b8b5d4157df243f93408510df9);
+            
+    
+            var marker_535e383e83f6cb31b0c5e5accbff0815 = L.marker(
                 [35.7328243893, 139.7577509814],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_97cb60db1567c4f53194dbac46e0446c = L.AwesomeMarkers.icon(
+            var icon_d2ee364584bf80922ac1ce1bf26f5caf = L.AwesomeMarkers.icon(
                 {
-  &#34;markerColor&#34;: &#34;red&#34;,
+  &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
   &#34;icon&#34;: &#34;info-sign&#34;,
   &#34;prefix&#34;: &#34;glyphicon&#34;,
@@ -846,26 +1048,26 @@
             );
         
     
-        var popup_e94b90aa120d1783c49d6662bd0c0679 = L.popup({
+        var popup_671d841d0f120bbcddb8dfa7f96bc0cb = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_c2370bcd6585020a0ae793c910f2ef6d = $(`&lt;div id=&#34;html_c2370bcd6585020a0ae793c910f2ef6d&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#16 53394670 × other&lt;/b&gt;&lt;br&gt;Score: 0.804&lt;br&gt;人口: 55,426&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.63km&lt;/div&gt;`)[0];
-                popup_e94b90aa120d1783c49d6662bd0c0679.setContent(html_c2370bcd6585020a0ae793c910f2ef6d);
+                var html_782c0e27a143a5ad8a80456c9ea4d985 = $(`&lt;div id=&#34;html_782c0e27a143a5ad8a80456c9ea4d985&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#19 5339467043 / other&lt;/b&gt;&lt;br&gt;Score: 0.521&lt;br&gt;人口: 4,665&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.63km&lt;/div&gt;`)[0];
+                popup_671d841d0f120bbcddb8dfa7f96bc0cb.setContent(html_782c0e27a143a5ad8a80456c9ea4d985);
             
         
 
-        marker_f953e215cfc29201d27f0102470382e6.bindPopup(popup_e94b90aa120d1783c49d6662bd0c0679)
+        marker_535e383e83f6cb31b0c5e5accbff0815.bindPopup(popup_671d841d0f120bbcddb8dfa7f96bc0cb)
         ;
 
         
     
     
-            marker_f953e215cfc29201d27f0102470382e6.bindTooltip(
+            marker_535e383e83f6cb31b0c5e5accbff0815.bindTooltip(
                 `&lt;div&gt;
-                     #16 other
+                     #19 other
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -873,65 +1075,17 @@
             );
         
     
-                marker_f953e215cfc29201d27f0102470382e6.setIcon(icon_97cb60db1567c4f53194dbac46e0446c);
+                marker_535e383e83f6cb31b0c5e5accbff0815.setIcon(icon_d2ee364584bf80922ac1ce1bf26f5caf);
             
     
-            var marker_ff5ede08a829e40649960120ed7db627 = L.marker(
+            var marker_1c7f50f4052798ca39cbe9c1aea401db = L.marker(
                 [35.7322139072, 139.7579293244],
                 {
 }
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
+            ).addTo(map_9f4ad415efa08bd17e83c9e6de325f85);
         
     
-            var icon_4d90c6dfa472ab68168dd0ee1e07c8de = L.AwesomeMarkers.icon(
-                {
-  &#34;markerColor&#34;: &#34;red&#34;,
-  &#34;iconColor&#34;: &#34;white&#34;,
-  &#34;icon&#34;: &#34;info-sign&#34;,
-  &#34;prefix&#34;: &#34;glyphicon&#34;,
-  &#34;extraClasses&#34;: &#34;fa-rotate-0&#34;,
-}
-            );
-        
-    
-        var popup_54eac969df5b8b315e8419d3d1c1205c = L.popup({
-  &#34;maxWidth&#34;: 300,
-});
-
-        
-            
-                var html_61598c422911c49561ad7f64321daedb = $(`&lt;div id=&#34;html_61598c422911c49561ad7f64321daedb&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#17 53394670 × italian&lt;/b&gt;&lt;br&gt;Score: 0.804&lt;br&gt;人口: 55,426&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.69km&lt;/div&gt;`)[0];
-                popup_54eac969df5b8b315e8419d3d1c1205c.setContent(html_61598c422911c49561ad7f64321daedb);
-            
-        
-
-        marker_ff5ede08a829e40649960120ed7db627.bindPopup(popup_54eac969df5b8b315e8419d3d1c1205c)
-        ;
-
-        
-    
-    
-            marker_ff5ede08a829e40649960120ed7db627.bindTooltip(
-                `&lt;div&gt;
-                     #17 italian
-                 &lt;/div&gt;`,
-                {
-  &#34;sticky&#34;: true,
-}
-            );
-        
-    
-                marker_ff5ede08a829e40649960120ed7db627.setIcon(icon_4d90c6dfa472ab68168dd0ee1e07c8de);
-            
-    
-            var marker_eb74ee47d0be071c525a9dd15f217284 = L.marker(
-                [35.6974470206, 139.6765151333],
-                {
-}
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
-        
-    
-            var icon_f23fc1dde8cce3067dbe3eb9da83dadd = L.AwesomeMarkers.icon(
+            var icon_232b064f334e50e0580d6bc222d3d151 = L.AwesomeMarkers.icon(
                 {
   &#34;markerColor&#34;: &#34;orange&#34;,
   &#34;iconColor&#34;: &#34;white&#34;,
@@ -942,26 +1096,26 @@
             );
         
     
-        var popup_4488ff02e4a63a5432feb29d8ff8c02b = L.popup({
+        var popup_bac76b804ff75b676657f28af279554c = L.popup({
   &#34;maxWidth&#34;: 300,
 });
 
         
             
-                var html_2a1744362fa24824bf81a0eb4abb9651 = $(`&lt;div id=&#34;html_2a1744362fa24824bf81a0eb4abb9651&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#18 53394534 × ramen&lt;/b&gt;&lt;br&gt;Score: 0.781&lt;br&gt;人口: 56,448&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.52km&lt;/div&gt;`)[0];
-                popup_4488ff02e4a63a5432feb29d8ff8c02b.setContent(html_2a1744362fa24824bf81a0eb4abb9651);
+                var html_a067a4ac17641b2389a270045d5f7349 = $(`&lt;div id=&#34;html_a067a4ac17641b2389a270045d5f7349&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#20 5339467043 / italian&lt;/b&gt;&lt;br&gt;Score: 0.520&lt;br&gt;人口: 4,665&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.69km&lt;/div&gt;`)[0];
+                popup_bac76b804ff75b676657f28af279554c.setContent(html_a067a4ac17641b2389a270045d5f7349);
             
         
 
-        marker_eb74ee47d0be071c525a9dd15f217284.bindPopup(popup_4488ff02e4a63a5432feb29d8ff8c02b)
+        marker_1c7f50f4052798ca39cbe9c1aea401db.bindPopup(popup_bac76b804ff75b676657f28af279554c)
         ;
 
         
     
     
-            marker_eb74ee47d0be071c525a9dd15f217284.bindTooltip(
+            marker_1c7f50f4052798ca39cbe9c1aea401db.bindTooltip(
                 `&lt;div&gt;
-                     #18 ramen
+                     #20 italian
                  &lt;/div&gt;`,
                 {
   &#34;sticky&#34;: true,
@@ -969,105 +1123,268 @@
             );
         
     
-                marker_eb74ee47d0be071c525a9dd15f217284.setIcon(icon_f23fc1dde8cce3067dbe3eb9da83dadd);
-            
-    
-            var marker_bfe22e485cea55fcd9cbcb80f13cb1cb = L.marker(
-                [35.7359356323, 139.7343431187],
-                {
-}
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
-        
-    
-            var icon_0318bb067697ef4df5f1d244fbdec18d = L.AwesomeMarkers.icon(
-                {
-  &#34;markerColor&#34;: &#34;orange&#34;,
-  &#34;iconColor&#34;: &#34;white&#34;,
-  &#34;icon&#34;: &#34;info-sign&#34;,
-  &#34;prefix&#34;: &#34;glyphicon&#34;,
-  &#34;extraClasses&#34;: &#34;fa-rotate-0&#34;,
-}
-            );
-        
-    
-        var popup_78a2129d4e9fffff5fd6c9262cb383c8 = L.popup({
-  &#34;maxWidth&#34;: 300,
-});
-
-        
-            
-                var html_4644a6b39851702b0fa01724f57e5a50 = $(`&lt;div id=&#34;html_4644a6b39851702b0fa01724f57e5a50&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#19 53394588 × italian&lt;/b&gt;&lt;br&gt;Score: 0.781&lt;br&gt;人口: 54,610&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.46km&lt;/div&gt;`)[0];
-                popup_78a2129d4e9fffff5fd6c9262cb383c8.setContent(html_4644a6b39851702b0fa01724f57e5a50);
-            
-        
-
-        marker_bfe22e485cea55fcd9cbcb80f13cb1cb.bindPopup(popup_78a2129d4e9fffff5fd6c9262cb383c8)
-        ;
-
-        
-    
-    
-            marker_bfe22e485cea55fcd9cbcb80f13cb1cb.bindTooltip(
-                `&lt;div&gt;
-                     #19 italian
-                 &lt;/div&gt;`,
-                {
-  &#34;sticky&#34;: true,
-}
-            );
-        
-    
-                marker_bfe22e485cea55fcd9cbcb80f13cb1cb.setIcon(icon_0318bb067697ef4df5f1d244fbdec18d);
-            
-    
-            var marker_b4d26129deb0e183281ad882ce9342c2 = L.marker(
-                [35.7149500618, 139.6872479615],
-                {
-}
-            ).addTo(map_8a499316c2496bf84569cb3568cd5976);
-        
-    
-            var icon_ec4a06d21525f275b4e5eeb1f53bdeeb = L.AwesomeMarkers.icon(
-                {
-  &#34;markerColor&#34;: &#34;orange&#34;,
-  &#34;iconColor&#34;: &#34;white&#34;,
-  &#34;icon&#34;: &#34;info-sign&#34;,
-  &#34;prefix&#34;: &#34;glyphicon&#34;,
-  &#34;extraClasses&#34;: &#34;fa-rotate-0&#34;,
-}
-            );
-        
-    
-        var popup_879a6347749b9974c3ec0ac98abb602f = L.popup({
-  &#34;maxWidth&#34;: 300,
-});
-
-        
-            
-                var html_3e0d15e97c954f12e0e33f2e9a0d139c = $(`&lt;div id=&#34;html_3e0d15e97c954f12e0e33f2e9a0d139c&#34; style=&#34;width: 100.0%; height: 100.0%;&#34;&gt;&lt;b&gt;#20 53394554 × ramen&lt;/b&gt;&lt;br&gt;Score: 0.760&lt;br&gt;人口: 48,334&lt;br&gt;競合: 1店舗&lt;br&gt;駅距離: 0.03km&lt;/div&gt;`)[0];
-                popup_879a6347749b9974c3ec0ac98abb602f.setContent(html_3e0d15e97c954f12e0e33f2e9a0d139c);
-            
-        
-
-        marker_b4d26129deb0e183281ad882ce9342c2.bindPopup(popup_879a6347749b9974c3ec0ac98abb602f)
-        ;
-
-        
-    
-    
-            marker_b4d26129deb0e183281ad882ce9342c2.bindTooltip(
-                `&lt;div&gt;
-                     #20 ramen
-                 &lt;/div&gt;`,
-                {
-  &#34;sticky&#34;: true,
-}
-            );
-        
-    
-                marker_b4d26129deb0e183281ad882ce9342c2.setIcon(icon_ec4a06d21525f275b4e5eeb1f53bdeeb);
+                marker_1c7f50f4052798ca39cbe9c1aea401db.setIcon(icon_232b064f334e50e0580d6bc222d3d151);
             
 &lt;/script&gt;
-&lt;/html&gt;" style="width:100%;height:500px;border:none;"></iframe>
+&lt;/html&gt;"></iframe>
+</div>
+
+<!-- ===== 候補テーブル ===== -->
+<h2>出店候補ランキング（上位20件）</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+  <th>順位</th><th>メッシュコード</th><th>ジャンル</th><th>スコア</th>
+  <th>人口</th><th>店舗数</th><th>Market Gap</th><th>最寄駅</th><th>解説</th>
+</tr>
+</thead>
+<tbody>
+
+<tr>
+  <td>1</td>
+  <td>5339366224</td>
+  <td>cafe</td>
+  <td class="score-high">1.000</td>
+  <td>7,277</td>
+  <td>1</td>
+  <td>-0.53</td>
+  <td>有明テニスの森（551m）</td>
+  <td class="explanation">人口7,277人の商圏です。cafeの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。有明テニスの森駅から約551mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>2</td>
+  <td>5339366033</td>
+  <td>other</td>
+  <td class="score-high">0.924</td>
+  <td>6,987</td>
+  <td>1</td>
+  <td>-0.14</td>
+  <td>芝浦ふ頭（466m）</td>
+  <td class="explanation">人口6,987人の商圏です。otherの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。芝浦ふ頭駅から約466mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>3</td>
+  <td>5339368144</td>
+  <td>other</td>
+  <td class="score-mid">0.766</td>
+  <td>5,809</td>
+  <td>1</td>
+  <td>0.23</td>
+  <td>勝どき（212m）</td>
+  <td class="explanation">人口5,809人の商圏です。otherの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。勝どき駅から約212mで駅近です。</td>
+</tr>
+
+<tr>
+  <td>4</td>
+  <td>5339369241</td>
+  <td>cafe</td>
+  <td class="score-mid">0.741</td>
+  <td>5,593</td>
+  <td>1</td>
+  <td>-0.26</td>
+  <td>月島（215m）</td>
+  <td class="explanation">人口5,593人の商圏です。cafeの競合がかなり少ない状況です。飽和度が高く競争が激しい可能性があります。月島駅から約215mで駅近です。</td>
+</tr>
+
+<tr>
+  <td>5</td>
+  <td>5339356943</td>
+  <td>italian</td>
+  <td class="score-mid">0.697</td>
+  <td>5,580</td>
+  <td>1</td>
+  <td>-0.01</td>
+  <td>泉岳寺（520m）</td>
+  <td class="explanation">人口5,580人の商圏です。italianの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。飽和度が低く新規出店余地があります。泉岳寺駅から約520mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>6</td>
+  <td>5339460224</td>
+  <td>italian</td>
+  <td class="score-mid">0.594</td>
+  <td>5,450</td>
+  <td>1</td>
+  <td>-0.09</td>
+  <td>月島（518m）</td>
+  <td class="explanation">人口5,450人の商圏です。italianの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。月島駅から約518mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>7</td>
+  <td>5339453711</td>
+  <td>izakaya</td>
+  <td class="score-mid">0.583</td>
+  <td>5,017</td>
+  <td>1</td>
+  <td>0.21</td>
+  <td>新宿御苑前（475m）</td>
+  <td class="explanation">人口5,017人の商圏です。izakayaの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。飽和度が低く新規出店余地があります。新宿御苑前駅から約475mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>8</td>
+  <td>5339357732</td>
+  <td>yakiniku</td>
+  <td class="score-mid">0.575</td>
+  <td>4,923</td>
+  <td>1</td>
+  <td>0.33</td>
+  <td>恵比寿（559m）</td>
+  <td class="explanation">人口4,923人の商圏です。yakinikuの競合がかなり少ない状況です。飽和度が高く競争が激しい可能性があります。恵比寿駅から約559mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>9</td>
+  <td>5339458811</td>
+  <td>chinese</td>
+  <td class="score-mid">0.555</td>
+  <td>4,568</td>
+  <td>1</td>
+  <td>0.08</td>
+  <td>巣鴨新田（97m）</td>
+  <td class="explanation">人口4,568人の商圏です。chineseの競合がかなり少ない状況です。飽和度が高く競争が激しい可能性があります。巣鴨新田駅から約97mで駅近です。</td>
+</tr>
+
+<tr>
+  <td>10</td>
+  <td>5339357931</td>
+  <td>sushi</td>
+  <td class="score-mid">0.550</td>
+  <td>4,871</td>
+  <td>1</td>
+  <td>-0.04</td>
+  <td>白金高輪（662m）</td>
+  <td class="explanation">人口4,871人の商圏です。sushiの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。飽和度が低く新規出店余地があります。白金高輪駅から約662mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>11</td>
+  <td>5339357931</td>
+  <td>chinese</td>
+  <td class="score-mid">0.549</td>
+  <td>4,871</td>
+  <td>1</td>
+  <td>-0.09</td>
+  <td>白金高輪（690m）</td>
+  <td class="explanation">人口4,871人の商圏です。chineseの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。飽和度が低く新規出店余地があります。白金高輪駅から約690mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>12</td>
+  <td>5339357931</td>
+  <td>italian</td>
+  <td class="score-mid">0.549</td>
+  <td>4,871</td>
+  <td>1</td>
+  <td>-0.00</td>
+  <td>田町（713m）</td>
+  <td class="explanation">人口4,871人の商圏です。italianの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。飽和度が低く新規出店余地があります。田町駅から約713mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>13</td>
+  <td>5339458811</td>
+  <td>sushi</td>
+  <td class="score-mid">0.548</td>
+  <td>4,568</td>
+  <td>1</td>
+  <td>0.21</td>
+  <td>巣鴨新田（206m）</td>
+  <td class="explanation">人口4,568人の商圏です。sushiの競合がかなり少ない状況です。飽和度が高く競争が激しい可能性があります。巣鴨新田駅から約206mで駅近です。</td>
+</tr>
+
+<tr>
+  <td>14</td>
+  <td>5339458811</td>
+  <td>cafe</td>
+  <td class="score-mid">0.548</td>
+  <td>4,568</td>
+  <td>1</td>
+  <td>0.05</td>
+  <td>巣鴨新田（222m）</td>
+  <td class="explanation">人口4,568人の商圏です。cafeの競合がかなり少ない状況です。飽和度が高く競争が激しい可能性があります。巣鴨新田駅から約222mで駅近です。</td>
+</tr>
+
+<tr>
+  <td>15</td>
+  <td>5339458811</td>
+  <td>yakiniku</td>
+  <td class="score-mid">0.547</td>
+  <td>4,568</td>
+  <td>1</td>
+  <td>0.23</td>
+  <td>巣鴨新田（243m）</td>
+  <td class="explanation">人口4,568人の商圏です。yakinikuの競合がかなり少ない状況です。飽和度が高く競争が激しい可能性があります。巣鴨新田駅から約243mで駅近です。</td>
+</tr>
+
+<tr>
+  <td>16</td>
+  <td>5339465031</td>
+  <td>italian</td>
+  <td class="score-mid">0.533</td>
+  <td>4,753</td>
+  <td>1</td>
+  <td>0.16</td>
+  <td>春日（422m）</td>
+  <td class="explanation">人口4,753人の商圏です。italianの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。春日駅から約422mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>17</td>
+  <td>5339465031</td>
+  <td>other</td>
+  <td class="score-mid">0.533</td>
+  <td>4,753</td>
+  <td>1</td>
+  <td>0.21</td>
+  <td>春日（425m）</td>
+  <td class="explanation">人口4,753人の商圏です。otherの競合がかなり少ない状況です。ジャンル偏りがあり差別化余地があります。春日駅から約425mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>18</td>
+  <td>5339467043</td>
+  <td>cafe</td>
+  <td class="score-mid">0.521</td>
+  <td>4,665</td>
+  <td>1</td>
+  <td>-0.00</td>
+  <td>田端（579m）</td>
+  <td class="explanation">人口4,665人の商圏です。cafeの競合がかなり少ない状況です。田端駅から約579mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>19</td>
+  <td>5339467043</td>
+  <td>other</td>
+  <td class="score-mid">0.521</td>
+  <td>4,665</td>
+  <td>1</td>
+  <td>0.01</td>
+  <td>田端（634m）</td>
+  <td class="explanation">人口4,665人の商圏です。otherの競合がかなり少ない状況です。田端駅から約634mで徒歩圏です。</td>
+</tr>
+
+<tr>
+  <td>20</td>
+  <td>5339467043</td>
+  <td>italian</td>
+  <td class="score-mid">0.520</td>
+  <td>4,665</td>
+  <td>1</td>
+  <td>0.00</td>
+  <td>田端（687m）</td>
+  <td class="explanation">人口4,665人の商圏です。italianの競合がかなり少ない状況です。田端駅から約687mで徒歩圏です。</td>
+</tr>
+
+</tbody>
+</table>
+</div>
+
+<footer>Market Gap Finder &copy; 2026</footer>
 </body>
 </html>

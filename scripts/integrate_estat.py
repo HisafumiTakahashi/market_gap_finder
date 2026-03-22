@@ -156,9 +156,12 @@ def save_integrated(df: pd.DataFrame, tag: str) -> None:
 def _merge_google_ratings(integrated_df: pd.DataFrame, google_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """Compute derived Google aggregate features from pre-matched mesh data and raw Google data."""
     out = integrated_df.copy()
-    out["google_avg_rating"] = pd.to_numeric(out.get("google_avg_rating"), errors="coerce").fillna(0.0)
-    out["google_total_reviews"] = pd.to_numeric(out.get("google_total_reviews"), errors="coerce").fillna(0.0)
-    out["google_match_count"] = pd.to_numeric(out.get("google_match_count"), errors="coerce").fillna(0).astype(int)
+    for col, default in (("google_avg_rating", 0.0), ("google_total_reviews", 0.0), ("google_match_count", 0)):
+        if col not in out.columns:
+            out[col] = default
+        else:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(default)
+    out["google_match_count"] = out["google_match_count"].astype(int)
     out["reviews_per_shop"] = out["google_total_reviews"] / out["google_match_count"].replace(0, 1)
 
     population = pd.to_numeric(out.get("population"), errors="coerce").fillna(0.0)

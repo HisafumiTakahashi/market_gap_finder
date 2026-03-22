@@ -1,11 +1,12 @@
 # TODO: 次セッション向けタスク
 
-## 現状サマリ (2026-03-22)
+## 現状サマリ (2026-03-23)
 
 ### ブランチ・インフラ
 - **ブランチ**: `feature/add-docstrings`（masterからの差分が大きい）
-- **テスト**: 128 passed
-- **GitHub認証**: `gh auth login` 未実施 → PR作成にはこれが必要
+- **テスト**: 134 passed
+- **GitHub認証**: `gh auth login` 済みだが `repo` スコープ不足 → PR作成に再認証が必要
+- **未コミット変更**: 12ファイル（v3bスコアリング、ダッシュボード改善、新規CLI等）
 
 ### データパイプライン
 - **5エリア対応**: tokyo / osaka / nagoya / fukuoka / sapporo
@@ -16,76 +17,92 @@
 ### MLモデル性能
 | 指標 | 値 |
 |------|-----|
-| LOAO CV R2 | 0.795 |
-| LOAO CV RMSE | 0.310 |
-| ML vs v3 Spearman | 0.388 |
+| 5-Fold CV R² | 0.795 |
+| 5-Fold CV RMSE | 0.310 |
+| LOAO tokyo R² | 0.729（最低） |
+| LOAO osaka R² | 0.796 |
+| LOAO nagoya R² | 0.815（最高） |
+| LOAO fukuoka R² | 0.810 |
+| ML vs v3b Spearman | 0.586 |
 | 特徴量数 | 26 |
-| 学習データ | 9,665行（5エリア結合） |
+| 学習データ | 9,665行（4エリア結合、sapporo除外） |
 
-### 今回のセッションで完了した内容
+---
 
-#### e-Stat API改善
-- `get_stats_data` にページネーション追加（`startPosition` ループ）
-- cat01 日本語名→コード正規化（`_CAT01_PATTERN_TO_CODE` 部分一致、順序考慮）
-- CSVの `dtype` 指定で先頭ゼロ消失を防止
+## 前回セッション (2026-03-22) で完了した内容
 
-#### コード品質改善（13件）
-1. 特徴量リーケージ修正（`neighbor_avg_score` 除去）
-2. 定数二重定義の統合（`POPULATION_*` を `estat.py` に一元化）
-3. `_mesh_col` 統合（`src/analyze/utils.py` に共通実装、5ファイルから import）
-4. ジャンルマッピング修正（`sushi`→`washoku`、テスト・キャッシュ含め全更新）
-5. API失敗時の warning ログ追加
-6. population 欠損の扱い（`==0.0` → `.isna()` で実際の 0 と欠損を区別）
-7. cKDTree 高速化（最寄り駅 O(n×m) → O(n log m)）
-8. マジックナンバー抽出（`constants.py` に集約）
-9. HHI 計算コメント追加
-10. 循環 import 解消（`constants.py` 分離）
-11. `dashboard.py` / `report.py` の `_mesh_col` 統合
-12. テストの "sushi"→"washoku" 更新
-13. キャッシュCSV全エリア再生成
+（省略 — 前回セッションの内容は git log 342ad6b 以前を参照）
 
-#### パラメータ最適化（Optuna 検証済み、根拠コメント付き）
-| パラメータ | 旧値 | 新値 | 根拠 |
-|-----------|------|------|------|
-| `_COMPETITOR_OFFSET` | 0.1 | 0.064 | Optuna 30trial。旧値は正規化人口中央値の104%で過剰平滑化 |
-| `filter_outliers` | True | False | 全閾値でフィルタなしが R2 最良。外れ値7件は繁華街の正当データ |
-| `WEIGHT_DEMAND` | 1.0 | 0.17 | Optuna 100trial、v3-ML Spearman +105% |
-| `WEIGHT_COMPETITOR` | 1.0 | 2.76 | 同上。供給過多ペナルティが最重要 |
-| `WEIGHT_POPULATION` | 1.0 | 0.18 | 同上。需要と高相関のため低く抑制 |
-| `WEIGHT_LAND_PRICE` | 1.0 | 1.65 | 同上。低地価＝参入コスト低のボーナス |
+## 今回セッション (2026-03-23) で完了した内容
+
+### P3: モデル改善
+- [x] **エリア別精度分析**: LOAO CV 実施。tokyo R²=0.729（最低）、nagoya/fukuoka 0.81+
+- [x] **v3bスコアリング新設**: ratio形式→加算型log空間genre gapに構造変更
+  - `genre_log_gap`（ジャンル別log空間の期待値差）を導入
+  - `other_genre_count` を最重要シグナルに格上げ
+  - Optuna 200trialで重み最適化 → Spearman 0.417→0.586（+41%）
+- [x] **2段階残差モデル検証**: CV R²=0.739（悪化）→ **不採用**
+- [x] **時系列特徴量検討**: HotPepper APIに履歴データなし → **データ入手不可で見送り**
+- [x] **パイプライン統合**: integrate_estat.py, train_model.py を v3b 対応に更新
+
+### P4: プロダクト改善
+- [x] **HTMLレポート**: ジャンル別フィルタ（JS）、CircleMarker色分け、LayerControl追加
+- [x] **地図ビジュアライゼーション**: スコア色分け + market_gapサイズ + ジャンルレイヤー切替
+- [x] **新エリア追加CLI**: `scripts/add_area.py` — 座標指定で一気通貫パイプライン
+- [x] **ダッシュボード改善**:
+  - エリア切替ドロップダウン追加（data/processed/ 自動検出）
+  - 全UIラベル日本語化（エリア名、ジャンル名、地図モード等）
+  - マーカー表示を「#N ジャンル（最寄駅付近）」に変更
+  - Google Mapリンク追加（ポップアップから直接開ける）
+  - 理由テキスト日本語化（全CSV + ダッシュボード動的再生成）
+  - v1/v2スコアバージョン切替バグ修正
+  - competitor_density→restaurant_count表示バグ修正
+  - デフォルトスコアバージョンをv4に変更
+- [x] **MLモデル説明書**: `docs/ml_model_description.md` 作成
+
+### 新規ファイル
+- `scripts/add_area.py` — 新エリア追加CLI
+- `scripts/tune_v3b_weights.py` — v3b重みOptuna最適化スクリプト
+- `docs/ml_model_description.md` — MLモデル説明書
 
 ---
 
 ## 次にやるべきタスク
 
-### P1: PR作成・マージ
-- [ ] `gh auth login` で GitHub 認証を設定
+### P1: PR作成・マージ（未完了）
+- [ ] `gh auth login --scopes repo` で再認証（repoスコープ必要）
+- [ ] 今回セッションの変更をコミット
 - [ ] `feature/add-docstrings` → `master` への PR を作成
 - [ ] レビュー後マージ、ブランチ削除
 
 ### P2: 残存する軽微なコード問題
 - [ ] `genre_encoded` の `.cat.codes` がデータセットごとに異なる値を生成しうる
   → LabelEncoder で固定マッピングにするか、カテゴリ順序を明示的に定義
-- [ ] `scripts/run_pipeline.py` の `ALL_TAGS` に `sapporo` を追加
+- [ ] `scripts/run_pipeline.py` の `ALL_TAGS` に `sapporo` を追加（Google Places除外のまま）
+- [ ] `scripts/train_model.py` の `ALL_TAGS` にも `sapporo` 未追加（意図的: Google Placesデータなし）
 - [ ] テストカバレッジ拡充: NaN 人口ハンドリング、ジャンルマッピング検証
 
-### P3: モデル改善
-- [ ] エリア別精度分析（sapporo は人口データ少→精度低下の可能性）
-- [ ] v3 スコアと ML ギャップの相関 0.388 → スコアリングロジックの根本見直し
-- [ ] 2段階残差モデル（Ridge→LightGBM）の効果再検証
-- [ ] 時系列特徴量の検討（開店・閉店トレンド等、データ入手可能性次第）
+### P5: tokyo精度改善
+- [ ] tokyo R²=0.729 が全エリア最低。データ数は最大だが分散も最大
+- [ ] tokyo内サブエリア分割（繁華街/住宅街/郊外）の特徴量追加を検討
+- [ ] エリア固有の特徴量（例: エリアダミー変数）の効果検証
 
-### P4: プロダクト改善
-- [ ] HTML レポートにジャンル別フィルタ機能追加
-- [ ] 地図ビジュアライゼーション（folium 等）
-- [ ] 新エリア追加の自動化（座標指定だけで一気通貫）
+### P6: ダッシュボード追加機能
+- [ ] ヒートマップモードでもジャンルフィルタが効くか検証（現状マーカーのみtop_n制限）
+- [ ] ランキングテーブルをダッシュボード内に追加（地図の下に一覧表）
+- [ ] エリア横断比較ビュー（全エリアのtop候補を1画面で比較）
+
+### P7: データ品質・運用
+- [ ] 定期的なデータ収集の仕組み化（cron/スケジューラ）→ 将来の時系列データ蓄積
+- [ ] HTMLレポート自動再生成（v3bスコアで全エリア）
+- [ ] `add_area.py` の動作検証（実際に新エリアを追加してテスト）
 
 ---
 
 ## プロジェクト構造（最新）
 
 ```
-config/settings.py              # API設定・スコアリング重み（Optuna最適化済み）
+config/settings.py              # API設定・v3b重み（Optuna最適化済み）
 src/collect/
   estat.py                      # e-Stat APIクライアント（ページネーション・cat01フィルタ対応）
   hotpepper.py                  # HotPepper APIクライアント
@@ -100,28 +117,33 @@ src/preprocess/
   mesh_converter.py             # JIS 4分の1メッシュ変換（250m 10桁）
   google_matcher.py             # HotPepper↔Google Places座標マッチング
 src/analyze/
-  constants.py                  # 共通定数（_POP_UNIT, _COMPETITOR_OFFSET）  ← NEW
-  utils.py                      # 共通ユーティリティ（mesh_col）             ← NEW
+  constants.py                  # 共通定数（_POP_UNIT, _COMPETITOR_OFFSET）
+  utils.py                      # 共通ユーティリティ（mesh_col）
   features.py                   # 空間特徴量（26特徴量、cKDTree高速化済み）
-  scoring.py                    # v3 スコアリング（重み最適化済み）
+  scoring.py                    # v1/v2/v3/v3b/v4 スコアリング（v3b: Optuna最適化済み）
   ml_model.py                   # LightGBM（LOAO CV, Optuna対応）
   backtest.py                   # バックテスト（未使用）
 src/visualize/
-  dashboard.py                  # Dash ダッシュボード
-  report.py                     # HTMLレポート自動生成
+  dashboard.py                  # Dash ダッシュボード（エリア切替・日本語UI・Google Map連携）
+  report.py                     # HTMLレポート自動生成（ジャンルフィルタ・LayerControl）
 scripts/
-  integrate_estat.py            # e-Stat統合パイプライン
-  train_model.py                # MLモデル学習CLI（5エリア結合・LOAO対応）
+  add_area.py                   # 新エリア追加CLI（座標指定で一気通貫）  ← NEW
+  tune_v3b_weights.py           # v3b重みOptuna最適化                    ← NEW
+  integrate_estat.py            # e-Stat統合パイプライン（v3b対応）
+  train_model.py                # MLモデル学習CLI（v3b比較対応）
   run_pipeline.py               # 統合パイプラインCLI
   collect_area.py / collect_google.py / fetch_external.py
   validate_scores.py / generate_report.py
+docs/
+  ml_model_description.md       # MLモデル説明書                          ← NEW
+  system_overview.md            # システム概要
 models/
-  combined_lightgbm.txt         # 学習済みモデル（5エリア結合）
+  combined_lightgbm.txt         # 学習済みモデル（4エリア結合）
 data/
   raw/                          # 生データ（HotPepper/e-Stat/Google Places）
   processed/                    # 統合・スコアリング済みCSV + MLギャップ
   external/                     # 外部データキャッシュ（駅・地価・乗降客数）
-tests/                          # 128 tests
+tests/                          # 134 tests
 ```
 
 ## 環境変数（設定済み）

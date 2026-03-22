@@ -15,6 +15,20 @@ from src.analyze.utils import mesh_col as _mesh_col
 
 logger = logging.getLogger(__name__)
 
+REPORT_GENRES = [
+    "izakaya",
+    "italian",
+    "chinese",
+    "yakiniku",
+    "cafe",
+    "ramen",
+    "washoku",
+    "curry",
+    "other",
+]
+
+FALLBACK_EXPLANATION = "十分な説明データがありません。"
+
 
 def generate_explanation(row: pd.Series) -> str:
     """Generate a short Japanese explanation for a candidate row."""
@@ -38,78 +52,113 @@ def generate_explanation(row: pd.Series) -> str:
         and not station_name
         and gap <= 0
     ):
-        return "追加確認が必要です。"
+        return FALLBACK_EXPLANATION
 
     if pop >= 50000:
-        parts.append(f"人口{pop:,}人の高需要エリアです")
+        parts.append(f"人口{pop:,}人の大きな商圏です")
     elif pop >= 30000:
-        parts.append(f"人口{pop:,}人の中需要帯エリアです")
+        parts.append(f"人口{pop:,}人の中規模商圏です")
     elif pop > 0:
-        parts.append(f"人口{pop:,}人の商圏です")
+        parts.append(f"人口{pop:,}人を抱えるエリアです")
 
     if genre:
         if rest <= 1:
-            parts.append(f"{genre}の競合がかなり少ない状況です")
+            parts.append(f"{genre}の競合がほぼ見当たりません")
         elif rest <= 3:
-            parts.append(f"{genre}の競合が比較的少ない状況です")
+            parts.append(f"{genre}の競合はまだ少なめです")
         else:
             parts.append(f"{genre}は既に{rest}店舗あります")
 
     if diversity >= 8:
-        parts.append("ジャンル多様性が高く回遊性があります")
+        parts.append("ジャンル多様性が高く、回遊性が期待できます")
     elif 0 < diversity <= 3:
-        parts.append("ジャンル偏りがあり差別化余地があります")
+        parts.append("ジャンル構成が絞られており、差別化余地があります")
 
     if 0 < saturation < 5:
-        parts.append("飽和度が低く新規出店余地があります")
+        parts.append("飽和度が低く、新規出店余地があります")
     elif saturation > 20:
-        parts.append("飽和度が高く競争が激しい可能性があります")
+        parts.append("飽和度が高く、競争はやや激しめです")
 
     if station_name and station_dist > 0:
         if station_dist <= 0.3:
-            parts.append(f"{station_name}駅から約{station_dist * 1000:.0f}mで駅近です")
+            parts.append(f"{station_name}から約{station_dist * 1000:.0f}mで駅近です")
         elif station_dist <= 0.8:
-            parts.append(f"{station_name}駅から約{station_dist * 1000:.0f}mで徒歩圏です")
+            parts.append(f"{station_name}から約{station_dist * 1000:.0f}mで徒歩圏です")
         else:
-            parts.append(f"{station_name}駅から約{station_dist:.1f}kmです")
+            parts.append(f"{station_name}から約{station_dist:.1f}kmです")
 
     if gap > 1.0:
-        parts.append(f"ML推定で大きな需要超過が示唆されています（gap={gap:.2f}）")
+        parts.append(f"ML予測では需給ギャップが大きめです (gap={gap:.2f})")
     elif gap > 0.5:
-        parts.append(f"ML推定で需要超過が示唆されています（gap={gap:.2f}）")
+        parts.append(f"ML予測では需給ギャップが見込まれます (gap={gap:.2f})")
 
     if not parts:
-        return "追加確認が必要です。"
+        return FALLBACK_EXPLANATION
     return "。".join(parts) + "。"
 
 
+def _score_color(score: float) -> str:
+    if score >= 0.8:
+        return "#d32f2f"
+    if score >= 0.6:
+        return "#e65100"
+    if score >= 0.4:
+        return "#ffa000"
+    return "#1565c0"
+
+
 def _build_map(candidates: pd.DataFrame) -> str:
-    """Build a simple folium map HTML from candidate rows."""
+    """Build a folium map HTML from candidate rows."""
     if candidates.empty:
         return "<p>候補データがありません。</p>"
 
-    center_lat = candidates["lat"].mean()
-    center_lng = candidates["lng"].mean()
-    m = folium.Map(location=[center_lat, center_lng], zoom_start=12, tiles="CartoDB positron")
+    plot_df = candidates.copy()
+    plot_df["lat"] = pd.to_numeric(plot_df.get("lat"), errors="coerce")
+    plot_df["lng"] = pd.to_numeric(plot_df.get("lng"), errors="coerce")
+    plot_df = plot_df.dropna(subset=["lat", "lng"])
+    if plot_df.empty:
+        return "<p>候補データがありません。</p>"
 
-    for rank, (_, row) in enumerate(candidates.iterrows(), 1):
-        score = float(row.get("opportunity_score", 0))
-        color = "red" if score >= 0.8 else "orange" if score >= 0.5 else "blue"
+    center_lat = float(plot_df["lat"].mean())
+    center_lng = float(plot_df["lng"].mean())
+    map_obj = folium.Map(location=[center_lat, center_lng], zoom_start=12, tiles="CartoDB positron")
+
+    groups: dict[str, folium.FeatureGroup] = {}
+    genres = plot_df["unified_genre"].fillna("other").astype(str)
+    for genre in sorted(genres.unique()):
+        group = folium.FeatureGroup(name=genre, show=True)
+        group.add_to(map_obj)
+        groups[genre] = group
+
+    mesh_col = _mesh_col(plot_df)
+    for rank, (_, row) in enumerate(plot_df.iterrows(), 1):
+        score = float(row.get("opportunity_score", 0) or 0)
+        gap = float(row.get("market_gap", 0) or 0)
+        genre = str(row.get("unified_genre", "other") or "other")
+        radius = max(5.0, min(20.0, 5.0 + gap * 5.0))
         popup_html = (
-            f"<b>#{rank} {row.get('jis_mesh', row.get('jis_mesh3', ''))} / {row.get('unified_genre', '')}</b><br>"
+            f"<b>#{rank} {row.get(mesh_col, '')}</b><br>"
+            f"Genre: {genre}<br>"
             f"Score: {score:.3f}<br>"
-            f"人口: {int(row.get('population', 0)):,}<br>"
-            f"競合: {int(row.get('restaurant_count', 0))}店舗<br>"
-            f"駅距離: {float(row.get('nearest_station_distance', 0)):.2f}km"
+            f"Population: {int(row.get('population', 0) or 0):,}<br>"
+            f"Competitors: {int(row.get('restaurant_count', 0) or 0)}<br>"
+            f"Station Distance: {float(row.get('nearest_station_distance', 0) or 0):.2f}km<br>"
+            f"Market Gap: {gap:.2f}"
         )
-        folium.Marker(
+        folium.CircleMarker(
             location=[float(row["lat"]), float(row["lng"])],
-            popup=folium.Popup(popup_html, max_width=300),
-            tooltip=f"#{rank} {row.get('unified_genre', '')}",
-            icon=folium.Icon(color=color, icon="info-sign"),
-        ).add_to(m)
+            popup=folium.Popup(popup_html, max_width=320),
+            tooltip=f"#{rank} {genre}",
+            radius=radius,
+            color=_score_color(score),
+            weight=1,
+            fill=True,
+            fill_color=_score_color(score),
+            fill_opacity=0.85,
+        ).add_to(groups[genre])
 
-    return m.get_root().render()
+    folium.LayerControl(collapsed=False).add_to(map_obj)
+    return map_obj.get_root().render()
 
 
 _REPORT_TEMPLATE = Template(
@@ -126,18 +175,18 @@ _REPORT_TEMPLATE = Template(
   h1 { font-size: 1.6rem; margin-bottom: 8px; color: #1a1a2e; }
   h2 { font-size: 1.2rem; margin: 24px 0 12px; color: #16213e; border-left: 4px solid #0f3460; padding-left: 10px; }
   .meta { font-size: 0.85rem; color: #666; margin-bottom: 20px; }
-  /* --- stats cards --- */
   .stats { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 24px; }
   .stat-card { background: #fff; border-radius: 8px; padding: 16px 20px; min-width: 160px;
                flex: 1; box-shadow: 0 1px 4px rgba(0,0,0,0.08); text-align: center; }
   .stat-card .label { font-size: 0.78rem; color: #888; margin-bottom: 4px; }
   .stat-card .value { font-size: 1.5rem; font-weight: 700; color: #0f3460; }
-  /* --- map --- */
   .map-wrap { margin-bottom: 24px; }
   .map-wrap iframe { width: 100%; height: 520px; border: none; border-radius: 8px;
                      box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
-  /* --- table --- */
   .table-wrap { overflow-x: auto; margin-bottom: 32px; }
+  .table-controls { margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .table-controls label { font-size: 0.85rem; color: #555; }
+  .table-controls select { padding: 8px 10px; border: 1px solid #cfd8e3; border-radius: 6px; background: #fff; }
   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
           box-shadow: 0 1px 4px rgba(0,0,0,0.08); font-size: 0.85rem; }
   thead { background: #0f3460; color: #fff; }
@@ -157,11 +206,10 @@ _REPORT_TEMPLATE = Template(
 <h1>Market Gap Report</h1>
 <p class="meta">エリア: <strong>{{ area_tag }}</strong> &nbsp;|&nbsp; 生成日時: {{ generated_at }} &nbsp;|&nbsp; ML R&sup2;: {{ ml_r2 }}</p>
 
-<!-- ===== 統計サマリー ===== -->
-<h2>統計サマリー</h2>
+<h2>サマリー</h2>
 <div class="stats">
   <div class="stat-card">
-    <div class="label">総候補数</div>
+    <div class="label">候補件数</div>
     <div class="value">{{ total_candidates }}</div>
   </div>
   <div class="stat-card">
@@ -178,25 +226,32 @@ _REPORT_TEMPLATE = Template(
   </div>
 </div>
 
-<!-- ===== マップ ===== -->
-<h2>出店候補マップ（上位{{ top_n }}件）</h2>
+<h2>出店候補マップ Top {{ top_n }}</h2>
 <div class="map-wrap">
   <iframe srcdoc="{{ map_html | e }}"></iframe>
 </div>
 
-<!-- ===== 候補テーブル ===== -->
-<h2>出店候補ランキング（上位{{ top_n }}件）</h2>
+<h2>出店候補ランキング Top {{ top_n }}</h2>
 <div class="table-wrap">
+<div class="table-controls">
+  <label for="genre-filter">ジャンル</label>
+  <select id="genre-filter">
+    <option value="">全ジャンル</option>
+    {% for genre in genres %}
+    <option value="{{ genre }}">{{ genre }}</option>
+    {% endfor %}
+  </select>
+</div>
 <table>
 <thead>
 <tr>
   <th>順位</th><th>メッシュコード</th><th>ジャンル</th><th>スコア</th>
-  <th>人口</th><th>店舗数</th><th>Market Gap</th><th>最寄駅</th><th>解説</th>
+  <th>人口</th><th>競合数</th><th>Market Gap</th><th>最寄り駅</th><th>説明</th>
 </tr>
 </thead>
 <tbody>
 {% for c in candidates %}
-<tr>
+<tr data-genre="{{ c.genre }}">
   <td>{{ c.rank }}</td>
   <td>{{ c.mesh_code }}</td>
   <td>{{ c.genre }}</td>
@@ -211,6 +266,20 @@ _REPORT_TEMPLATE = Template(
 </tbody>
 </table>
 </div>
+
+<script>
+  const genreFilter = document.getElementById("genre-filter");
+  const tableRows = Array.from(document.querySelectorAll("tbody tr[data-genre]"));
+  if (genreFilter) {
+    genreFilter.addEventListener("change", function () {
+      const selectedGenre = genreFilter.value;
+      tableRows.forEach(function (row) {
+        const matches = !selectedGenre || row.dataset.genre === selectedGenre;
+        row.style.display = matches ? "" : "none";
+      });
+    });
+  }
+</script>
 
 <footer>Market Gap Finder &copy; {{ year }}</footer>
 </body>
@@ -240,16 +309,15 @@ def generate_report(tag: str, top_n: int = 20, ml_r2: str = "-") -> Path:
             lambda r: pred_map.get((r[df_mesh_col], r["unified_genre"]), 0), axis=1
         )
 
-    # --- Build candidate rows for the table ---
     mesh_col = _mesh_col(v3_top)
     candidates = []
     for rank, (_, row) in enumerate(v3_top.iterrows(), 1):
-        score_val = float(row.get("opportunity_score", 0))
+        score_val = float(row.get("opportunity_score", 0) or 0)
         score_class = "score-high" if score_val >= 0.8 else "score-mid" if score_val >= 0.5 else "score-low"
         gap_val = float(row.get("market_gap", 0) or 0)
         station_name = str(row.get("nearest_station_name", "") or "")
         station_dist = float(row.get("nearest_station_distance", 0) or 0)
-        station_str = f"{station_name}（{station_dist * 1000:.0f}m）" if station_name else "-"
+        station_str = f"{station_name} ({station_dist * 1000:.0f}m)" if station_name else "-"
         candidates.append(
             {
                 "rank": rank,
@@ -265,11 +333,8 @@ def generate_report(tag: str, top_n: int = 20, ml_r2: str = "-") -> Path:
             }
         )
 
-    # --- Compute summary statistics ---
     avg_pop = f"{int(df['population'].mean()):,}" if "population" in df.columns else "-"
-    avg_score = (
-        f"{df['opportunity_score'].mean():.3f}" if "opportunity_score" in df.columns else "-"
-    )
+    avg_score = f"{df['opportunity_score'].mean():.3f}" if "opportunity_score" in df.columns else "-"
     has_gap = "market_gap" in v3_top.columns and v3_top["market_gap"].notna().any()
     avg_gap = f"{v3_top['market_gap'].mean():.2f}" if has_gap else "-"
 
@@ -283,6 +348,7 @@ def generate_report(tag: str, top_n: int = 20, ml_r2: str = "-") -> Path:
         avg_market_gap=avg_gap,
         ml_r2=ml_r2,
         map_html=_build_map(v3_top),
+        genres=REPORT_GENRES,
         candidates=candidates,
         year=datetime.now().year,
     )

@@ -6,6 +6,9 @@ import math
 
 import pandas as pd
 
+_HALF_MAP = {(0, 0): 1, (0, 1): 2, (1, 0): 3, (1, 1): 4}
+_CODE_TO_IDX = {1: (0, 0), 2: (0, 1), 3: (1, 0), 4: (1, 1)}
+
 
 def lat_lon_to_mesh3(lat: float, lon: float) -> str:
     """緯度経度を JIS 標準 3 次メッシュコードへ変換する。"""
@@ -67,12 +70,26 @@ def lat_lon_to_mesh_quarter(lat: float, lon: float) -> str:
     lat_sw = p / 1.5 + q / 12 + s / 120
     lon_sw = u + 100 + r / 8 + t / 80
 
-    lat_in_mesh = lat - lat_sw
-    lon_in_mesh = lon - lon_sw
-    lat_idx = 1 if lat_in_mesh >= 1 / 240 else 0
-    lon_idx = 1 if lon_in_mesh >= 1 / 160 else 0
+    mesh3_lat_h = 1 / 120
+    mesh3_lon_w = 1 / 80
 
-    return f"{mesh3}{lat_idx}{lon_idx}"
+    lat_rel = lat - lat_sw
+    lon_rel = lon - lon_sw
+
+    half_lat = 1 if lat_rel >= mesh3_lat_h / 2 else 0
+    half_lon = 1 if lon_rel >= mesh3_lon_w / 2 else 0
+    half_code = _HALF_MAP[(half_lat, half_lon)]
+
+    half_lat_sw = lat_sw + half_lat * (mesh3_lat_h / 2)
+    half_lon_sw = lon_sw + half_lon * (mesh3_lon_w / 2)
+    lat_in_half = lat - half_lat_sw
+    lon_in_half = lon - half_lon_sw
+
+    quarter_lat = 1 if lat_in_half >= mesh3_lat_h / 4 else 0
+    quarter_lon = 1 if lon_in_half >= mesh3_lon_w / 4 else 0
+    quarter_code = _HALF_MAP[(quarter_lat, quarter_lon)]
+
+    return f"{mesh3}{half_code}{quarter_code}"
 
 
 def mesh_quarter_to_lat_lon(mesh_code: str) -> tuple[float, float]:
@@ -82,8 +99,10 @@ def mesh_quarter_to_lat_lon(mesh_code: str) -> tuple[float, float]:
         raise ValueError("mesh_code must be a 10-digit string")
 
     mesh3 = code[:8]
-    lat_idx = int(code[8])
-    lon_idx = int(code[9])
+    half_code = int(code[8])
+    quarter_code = int(code[9])
+    if half_code not in _CODE_TO_IDX or quarter_code not in _CODE_TO_IDX:
+        raise ValueError("quarter mesh suffix digits must be in 1-4")
 
     p = int(mesh3[0:2])
     u = int(mesh3[2:4])
@@ -94,8 +113,13 @@ def mesh_quarter_to_lat_lon(mesh_code: str) -> tuple[float, float]:
 
     lat_sw = p / 1.5 + q / 12 + s / 120
     lon_sw = u + 100 + r / 8 + t / 80
-    lat = lat_sw + lat_idx * (1 / 240) + 1 / 480
-    lon = lon_sw + lon_idx * (1 / 160) + 1 / 320
+    mesh3_lat_h = 1 / 120
+    mesh3_lon_w = 1 / 80
+    h_lat, h_lon = _CODE_TO_IDX[half_code]
+    q_lat, q_lon = _CODE_TO_IDX[quarter_code]
+
+    lat = lat_sw + h_lat * (mesh3_lat_h / 2) + q_lat * (mesh3_lat_h / 4) + mesh3_lat_h / 8
+    lon = lon_sw + h_lon * (mesh3_lon_w / 2) + q_lon * (mesh3_lon_w / 4) + mesh3_lon_w / 8
     return (lat, lon)
 
 

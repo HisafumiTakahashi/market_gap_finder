@@ -95,8 +95,17 @@ def _neighbor_mesh_codes_quarter(mesh: str) -> list[str]:
         return []
 
     parent = code[:8]
-    lat_idx = int(code[8])
-    lon_idx = int(code[9])
+    half_code = int(code[8])
+    quarter_code = int(code[9])
+    code_to_idx = {1: (0, 0), 2: (0, 1), 3: (1, 0), 4: (1, 1)}
+    if half_code not in code_to_idx or quarter_code not in code_to_idx:
+        return []
+
+    idx_to_code = {value: key for key, value in code_to_idx.items()}
+    h_lat, h_lon = code_to_idx[half_code]
+    q_lat, q_lon = code_to_idx[quarter_code]
+    abs_lat = h_lat * 2 + q_lat
+    abs_lon = h_lon * 2 + q_lon
     neighbors: list[str] = []
 
     for dlat in (-1, 0, 1):
@@ -104,29 +113,37 @@ def _neighbor_mesh_codes_quarter(mesh: str) -> list[str]:
             if dlat == 0 and dlon == 0:
                 continue
 
-            next_lat_idx = lat_idx + dlat
-            next_lon_idx = lon_idx + dlon
+            new_abs_lat = abs_lat + dlat
+            new_abs_lon = abs_lon + dlon
             parent_lat_shift = 0
             parent_lon_shift = 0
 
-            if next_lat_idx < 0:
-                next_lat_idx += 2
+            if new_abs_lat < 0:
+                new_abs_lat += 4
                 parent_lat_shift -= 1
-            elif next_lat_idx > 1:
-                next_lat_idx -= 2
+            elif new_abs_lat > 3:
+                new_abs_lat -= 4
                 parent_lat_shift += 1
 
-            if next_lon_idx < 0:
-                next_lon_idx += 2
+            if new_abs_lon < 0:
+                new_abs_lon += 4
                 parent_lon_shift -= 1
-            elif next_lon_idx > 1:
-                next_lon_idx -= 2
+            elif new_abs_lon > 3:
+                new_abs_lon -= 4
                 parent_lon_shift += 1
 
             shifted_parent = _shift_mesh3(parent, parent_lat_shift, parent_lon_shift)
             if shifted_parent is None:
                 continue
-            neighbors.append(f"{shifted_parent}{next_lat_idx}{next_lon_idx}")
+
+            new_h_lat = new_abs_lat // 2
+            new_q_lat = new_abs_lat % 2
+            new_h_lon = new_abs_lon // 2
+            new_q_lon = new_abs_lon % 2
+
+            new_half = idx_to_code[(new_h_lat, new_h_lon)]
+            new_quarter = idx_to_code[(new_q_lat, new_q_lon)]
+            neighbors.append(f"{shifted_parent}{new_half}{new_quarter}")
 
     return neighbors
 

@@ -22,7 +22,7 @@ from src.analyze.features import (
 def sample_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "jis_mesh": ["5339358600", "5339358600", "5339358601", "5339358601", "5339358611"],
+            "jis_mesh": ["5339358611", "5339358611", "5339358612", "5339358612", "5339358634"],
             "unified_genre": ["cafe", "ramen", "cafe", "ramen", "izakaya"],
             "restaurant_count": [10, 5, 8, 3, 7],
             "population": [50000, 50000, 40000, 40000, 45000],
@@ -44,14 +44,14 @@ class TestNeighborMeshCodes:
         assert len(neighbors) == 8
 
     def test_returns_8_neighbors_for_quarter_mesh(self) -> None:
-        neighbors = _neighbor_mesh_codes("5339358600")
+        neighbors = _neighbor_mesh_codes("5339358611")
         assert len(neighbors) == 8
-        assert "5339358601" in neighbors
-        assert "5339358610" in neighbors
+        assert "5339358612" in neighbors
+        assert "5339358613" in neighbors
 
     def test_quarter_mesh_crosses_parent_boundary(self) -> None:
-        neighbors = _neighbor_mesh_codes("5339358600")
-        assert "5339357511" in neighbors
+        neighbors = _neighbor_mesh_codes("5339358611")
+        assert "5339357544" in neighbors
 
     def test_invalid_code(self) -> None:
         assert _neighbor_mesh_codes("abc") == []
@@ -65,8 +65,8 @@ class TestAddGenreDiversity:
 
     def test_correct_counts(self, sample_df: pd.DataFrame) -> None:
         result = add_genre_diversity(sample_df)
-        assert result.loc[result["jis_mesh"] == "5339358600", "genre_diversity"].iloc[0] == 2
-        assert result.loc[result["jis_mesh"] == "5339358601", "genre_diversity"].iloc[0] == 2
+        assert result.loc[result["jis_mesh"] == "5339358611", "genre_diversity"].iloc[0] == 2
+        assert result.loc[result["jis_mesh"] == "5339358612", "genre_diversity"].iloc[0] == 2
 
     def test_empty_df(self) -> None:
         result = add_genre_diversity(pd.DataFrame())
@@ -106,7 +106,7 @@ class TestAddOtherGenreCount:
 
     def test_counts_other_genres_within_mesh(self, sample_df: pd.DataFrame) -> None:
         result = add_other_genre_count(sample_df)
-        mesh1 = result[result["jis_mesh"] == "5339358600"].sort_values("restaurant_count")
+        mesh1 = result[result["jis_mesh"] == "5339358611"].sort_values("restaurant_count")
         assert mesh1["other_genre_count"].tolist() == [10, 5]
 
     def test_missing_mesh_column_defaults_zero(self) -> None:
@@ -121,7 +121,7 @@ class TestAddGenreShare:
 
     def test_share_within_mesh(self, sample_df: pd.DataFrame) -> None:
         result = add_genre_share(sample_df)
-        mesh1 = result[result["jis_mesh"] == "5339358600"].sort_values("restaurant_count")
+        mesh1 = result[result["jis_mesh"] == "5339358611"].sort_values("restaurant_count")
         assert mesh1["genre_share"].tolist() == pytest.approx([5 / 15, 10 / 15])
 
 
@@ -163,14 +163,14 @@ class TestAddNeighborPopulation:
     def test_uses_neighbor_mesh_population_average(self) -> None:
         df = pd.DataFrame(
             {
-                "jis_mesh": ["5339358600", "5339358601", "5339358610"],
+                "jis_mesh": ["5339358611", "5339358612", "5339358613"],
                 "unified_genre": ["cafe", "ramen", "sushi"],
                 "restaurant_count": [2, 3, 4],
                 "population": [1000, 2000, 3000],
             }
         )
         result = add_neighbor_population(df)
-        target = result.loc[result["jis_mesh"] == "5339358600", "neighbor_avg_population"].iloc[0]
+        target = result.loc[result["jis_mesh"] == "5339358611", "neighbor_avg_population"].iloc[0]
         assert target == pytest.approx((2000 + 3000) / 8)
 
 

@@ -12,7 +12,7 @@ try:
     import optuna
 except ImportError:  # pragma: no cover - exercised in runtime environments without Optuna installed
     optuna = None
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import r2_score, root_mean_squared_error
 from sklearn.model_selection import GroupKFold, KFold
 
 from config import settings
@@ -183,7 +183,7 @@ def train_cv(
         fold_metrics.append(
             {
                 "fold": fold_idx,
-                "rmse": mean_squared_error(y_val, val_pred, squared=False),
+                "rmse": root_mean_squared_error(y_val, val_pred),
                 "r2": r2_score(y_val, val_pred),
             }
         )
@@ -380,7 +380,7 @@ def train_cross_area(
     return {
         "train_tags": train_tags,
         "test_tag": test_tag,
-        "rmse": mean_squared_error(test_target, predictions, squared=False),
+        "rmse": root_mean_squared_error(test_target, predictions),
         "r2": r2_score(test_target, predictions),
         "predictions": predictions,
         "actual": test_target.to_numpy(),

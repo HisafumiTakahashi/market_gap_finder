@@ -66,7 +66,8 @@ TARGET_GENRES: list[str] = [
     "カレー",
 ]
 
-# メッシュグリッド設定（緯度経度の刻み幅）
+# API 収集グリッド間隔（Hotpepper / Google Places の走査ステップ）
+# ※ 分析用メッシュは JIS 標準地域メッシュ（mesh_converter.py）を使用
 MESH_LAT_STEP: float = 0.005   # 約 500 m
 MESH_LON_STEP: float = 0.00625  # 約 500 m
 

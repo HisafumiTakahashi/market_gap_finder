@@ -11,20 +11,18 @@ import pandas as pd
 
 from config import settings
 from src.analyze.features import add_all_features
-from src.analyze.scoring import (
-    compute_opportunity_score_v2,
-    compute_opportunity_score_v3,
-    generate_reason,
-    run_scoring_v3,
-)
+from src.analyze.scoring import compute_opportunity_score_v3, generate_reason, run_scoring_v3
 from src.collect.estat import fetch_mesh_population, save_raw
 from src.collect.land_price import load_land_price_cache
 from src.collect.station import load_station_cache
 from src.collect.station_passengers import load_passenger_cache
 from src.preprocess.cleaner import load_hotpepper, map_genre
 from src.preprocess.google_matcher import match_google_to_hotpepper
-from src.preprocess.mesh_converter import assign_jis_mesh, lat_lon_to_mesh3, mesh3_to_mesh1
-
+from src.preprocess.mesh_converter import (
+    assign_jis_mesh_quarter,
+    lat_lon_to_mesh_quarter,
+    mesh_quarter_to_mesh1,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,20 +47,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def aggregate_hotpepper_by_mesh(df: pd.DataFrame) -> pd.DataFrame:
-    """Aggregate HotPepper rows by JIS mesh and genre."""
-    prepared = assign_jis_mesh(map_genre(df))
+    """Aggregate HotPepper rows by JIS quarter mesh and genre."""
+    prepared = assign_jis_mesh_quarter(map_genre(df))
     prepared["lat"] = pd.to_numeric(prepared.get("lat"), errors="coerce")
     prepared["lng"] = pd.to_numeric(prepared.get("lng"), errors="coerce")
-    prepared = prepared.dropna(subset=["jis_mesh3"]).copy()
+    prepared = prepared.dropna(subset=["jis_mesh"]).copy()
     has_google_cols = {"google_rating", "google_review_count"} <= set(prepared.columns)
 
     if has_google_cols:
         prepared["google_rating"] = pd.to_numeric(prepared["google_rating"], errors="coerce")
-        prepared["google_review_count"] = pd.to_numeric(
-            prepared["google_review_count"], errors="coerce"
-        )
+        prepared["google_review_count"] = pd.to_numeric(prepared["google_review_count"], errors="coerce")
         aggregated = (
-            prepared.groupby(["jis_mesh3", "unified_genre"], dropna=False)
+            prepared.groupby(["jis_mesh", "unified_genre"], dropna=False)
             .agg(
                 restaurant_count=("id", "size"),
                 lat=("lat", "mean"),
@@ -75,7 +71,7 @@ def aggregate_hotpepper_by_mesh(df: pd.DataFrame) -> pd.DataFrame:
         )
     else:
         aggregated = (
-            prepared.groupby(["jis_mesh3", "unified_genre"], dropna=False)
+            prepared.groupby(["jis_mesh", "unified_genre"], dropna=False)
             .agg(
                 restaurant_count=("id", "size"),
                 lat=("lat", "mean"),
@@ -84,45 +80,39 @@ def aggregate_hotpepper_by_mesh(df: pd.DataFrame) -> pd.DataFrame:
             .reset_index()
         )
 
-    aggregated["mesh_code"] = aggregated["jis_mesh3"]
+    aggregated["mesh_code"] = aggregated["jis_mesh"]
     return aggregated
 
 
 def normalize_population_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize e-Stat population data to JIS mesh 3 totals."""
+    """Normalize e-Stat population data to quarter-mesh totals."""
     if df.empty:
-        return pd.DataFrame(columns=["jis_mesh3", "population"])
+        return pd.DataFrame(columns=["jis_mesh", "population"])
 
     normalized = df.copy()
-
     if "mesh_code" not in normalized.columns:
         raise KeyError("mesh_code column is required in e-Stat data")
 
-    normalized["jis_mesh3"] = normalized["mesh_code"].astype(str).str.extract(r"(\d{8})", expand=False)
+    normalized["jis_mesh"] = normalized["mesh_code"].astype(str).str.extract(r"(\d{8,10})", expand=False)
+    normalized = normalized[normalized["jis_mesh"].astype(str).str.len() == 10].copy()
     normalized["population"] = (
-        normalized["population"]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-        .pipe(pd.to_numeric, errors="coerce")
+        normalized["population"].astype(str).str.replace(",", "", regex=False).pipe(pd.to_numeric, errors="coerce")
     )
 
     if "cat01" in normalized.columns:
         cat01_str = normalized["cat01"].astype(str)
-        total_mask = cat01_str.isin(["0010"]) | cat01_str.str.contains(
-            "総数|人口|世帯",
-            na=False,
-        )
+        total_mask = cat01_str.isin(["0010"]) | cat01_str.str.contains("人口|総数|男女", na=False)
         if total_mask.any():
             normalized = normalized.loc[total_mask].copy()
 
-    normalized = normalized.dropna(subset=["jis_mesh3", "population"])
+    normalized = normalized.dropna(subset=["jis_mesh", "population"])
     if normalized.empty:
-        return pd.DataFrame(columns=["jis_mesh3", "population"])
+        return pd.DataFrame(columns=["jis_mesh", "population"])
 
     return (
-        normalized.groupby("jis_mesh3", as_index=False)
+        normalized.groupby("jis_mesh", as_index=False)
         .agg(population=("population", "sum"))
-        .sort_values("jis_mesh3")
+        .sort_values("jis_mesh")
         .reset_index(drop=True)
     )
 
@@ -152,34 +142,23 @@ def save_integrated(df: pd.DataFrame, tag: str) -> None:
     logger.info("Saved integrated data: %s", output_path)
 
 
-def _merge_google_ratings(
-    integrated_df: pd.DataFrame, google_df: pd.DataFrame | None = None
-) -> pd.DataFrame:
+def _merge_google_ratings(integrated_df: pd.DataFrame, google_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """Compute derived Google aggregate features from pre-matched mesh data and raw Google data."""
     out = integrated_df.copy()
     out["google_avg_rating"] = pd.to_numeric(out.get("google_avg_rating"), errors="coerce").fillna(0.0)
-    out["google_total_reviews"] = pd.to_numeric(
-        out.get("google_total_reviews"), errors="coerce"
-    ).fillna(0.0)
-    out["google_match_count"] = pd.to_numeric(
-        out.get("google_match_count"), errors="coerce"
-    ).fillna(0).astype(int)
+    out["google_total_reviews"] = pd.to_numeric(out.get("google_total_reviews"), errors="coerce").fillna(0.0)
+    out["google_match_count"] = pd.to_numeric(out.get("google_match_count"), errors="coerce").fillna(0).astype(int)
     out["reviews_per_shop"] = out["google_total_reviews"] / out["google_match_count"].replace(0, 1)
 
-    # google_density: Google Places生データの登録数 / 人口（ターゲット非依存）
     population = pd.to_numeric(out.get("population"), errors="coerce").fillna(0.0)
-    if google_df is not None and not google_df.empty and "jis_mesh3" not in out.columns:
-        out["google_density"] = 0.0
-    elif google_df is not None and not google_df.empty:
-        from src.preprocess.mesh_converter import lat_lon_to_mesh3
-
+    if google_df is not None and not google_df.empty and "jis_mesh" in out.columns:
         gdf = google_df.copy()
         gdf["lat"] = pd.to_numeric(gdf["lat"], errors="coerce")
         gdf["lng"] = pd.to_numeric(gdf["lng"], errors="coerce")
         gdf = gdf.dropna(subset=["lat", "lng"])
-        gdf["jis_mesh3"] = [lat_lon_to_mesh3(lat, lng) for lat, lng in zip(gdf["lat"], gdf["lng"])]
-        mesh_gp_count = gdf.groupby("jis_mesh3").size().rename("google_place_count")
-        out = out.merge(mesh_gp_count, on="jis_mesh3", how="left")
+        gdf["jis_mesh"] = [lat_lon_to_mesh_quarter(lat, lng) for lat, lng in zip(gdf["lat"], gdf["lng"])]
+        mesh_gp_count = gdf.groupby("jis_mesh").size().rename("google_place_count")
+        out = out.merge(mesh_gp_count, on="jis_mesh", how="left")
         out["google_place_count"] = out["google_place_count"].fillna(0).astype(int)
         out["google_density"] = out["google_place_count"] / (population / 10000 + 0.1)
         out["google_density"] = out["google_density"].fillna(0.0)
@@ -199,6 +178,7 @@ def main() -> int:
         hotpepper_df = load_hotpepper(args.tag)
 
         google_path = settings.RAW_DATA_DIR / f"{args.tag}_google_places.csv"
+        google_df: pd.DataFrame | None = None
         google_matched_df = hotpepper_df
         if google_path.exists():
             google_df = pd.read_csv(google_path)
@@ -212,11 +192,11 @@ def main() -> int:
                 (matched_count / len(google_matched_df) * 100) if len(google_matched_df) else 0.0,
             )
 
-        logger.info("Aggregating HotPepper rows to JIS mesh 3")
+        logger.info("Aggregating HotPepper rows to quarter mesh")
         mesh_agg_df = aggregate_hotpepper_by_mesh(google_matched_df)
         logger.info("HotPepper mesh rows: %d", len(mesh_agg_df))
 
-        mesh1_codes = sorted({mesh3_to_mesh1(code) for code in mesh_agg_df["jis_mesh3"].dropna().astype(str)})
+        mesh1_codes = sorted({mesh_quarter_to_mesh1(code) for code in mesh_agg_df["jis_mesh"].dropna().astype(str)})
         logger.info("Unique mesh1 codes: %d", len(mesh1_codes))
 
         population_raw_df = load_or_fetch_population(
@@ -227,27 +207,18 @@ def main() -> int:
         population_df = normalize_population_df(population_raw_df)
         logger.info("Normalized population mesh rows: %d", len(population_df))
 
-        integrated_df = mesh_agg_df.merge(population_df, on="jis_mesh3", how="left")
-        integrated_df["population"] = pd.to_numeric(
-            integrated_df["population"], errors="coerce"
-        ).fillna(0.0)
+        integrated_df = mesh_agg_df.merge(population_df, on="jis_mesh", how="left")
+        integrated_df["population"] = pd.to_numeric(integrated_df["population"], errors="coerce").fillna(0.0)
 
         logger.info("Adding station, passenger, and land-price features")
         station_df = load_station_cache(args.tag)
         price_df = load_land_price_cache(args.tag)
         passenger_df = load_passenger_cache(args.tag)
-        if station_df is not None:
-            logger.info("Loaded stations: %d", len(station_df))
-        if price_df is not None:
-            logger.info("Loaded land prices: %d", len(price_df))
-        if passenger_df is not None:
-            logger.info("Loaded station passengers: %d", len(passenger_df))
 
         featured_df = add_all_features(
             integrated_df, station_df=station_df, passenger_df=passenger_df, price_df=price_df
         )
-        if google_path.exists():
-            featured_df = _merge_google_ratings(featured_df, google_df)
+        featured_df = _merge_google_ratings(featured_df, google_df)
 
         full_scored_df = compute_opportunity_score_v3(featured_df).sort_values(
             "opportunity_score", ascending=False
@@ -261,7 +232,7 @@ def main() -> int:
             logger.info(
                 "%d. mesh=%s genre=%s score=%.4f population=%.0f",
                 rank,
-                getattr(row, "jis_mesh3", ""),
+                getattr(row, "jis_mesh", getattr(row, "jis_mesh3", "")),
                 getattr(row, "unified_genre", ""),
                 getattr(row, "opportunity_score", 0.0),
                 getattr(row, "population", 0.0),

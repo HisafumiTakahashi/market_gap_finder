@@ -89,7 +89,7 @@ def print_top_gaps(gap_df: pd.DataFrame, top_n: int, section_no: int = 3) -> Non
     top = gap_df.nlargest(top_n, "market_gap")
     for rank, (_, row) in enumerate(top.iterrows(), 1):
         print(
-            f"  {rank:2d}. {row.get('jis_mesh3', '')} x {row.get('unified_genre', ''):10s} | "
+            f"  {rank:2d}. {row.get('jis_mesh', row.get('jis_mesh3', ''))} x {row.get('unified_genre', ''):10s} | "
             f"gap={row['market_gap']:+.3f} | pred={row['predicted_count']:.1f} actual={row['restaurant_count']:.0f} | "
             f"pop={int(row.get('population', 0)):,} | station={row.get('nearest_station_distance', 0):.2f}km"
         )
@@ -119,7 +119,7 @@ def print_v3_comparison(comparison_df: pd.DataFrame, top_n: int, section_no: int
     print(f"  ML上位候補で v3 と 10 位超差があるもの: {len(big_diff)}件")
     for _, row in big_diff.head(5).iterrows():
         print(
-            f"    {row.get('jis_mesh3', '')} x {row.get('unified_genre', ''):10s} | "
+            f"    {row.get('jis_mesh', row.get('jis_mesh3', ''))} x {row.get('unified_genre', ''):10s} | "
             f"ML={int(row['rank_ml'])}位 v3={int(row['rank_v3'])}位 (差={int(row['rank_diff'])})"
         )
     print()

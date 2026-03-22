@@ -28,6 +28,14 @@ class TestHaversineKm:
     def test_same_point_is_zero(self) -> None:
         assert station.haversine_km(35.681236, 139.767125, 35.681236, 139.767125) == pytest.approx(0.0)
 
+    def test_known_distance_osaka_to_kyoto(self) -> None:
+        distance = station.haversine_km(34.6937, 135.5023, 35.0116, 135.7681)
+        assert distance == pytest.approx(50.0, abs=10.0)
+
+    def test_antipodal_points(self) -> None:
+        distance = station.haversine_km(0.0, 0.0, 0.0, 180.0)
+        assert distance == pytest.approx(20015.0, abs=1.0)
+
 
 class TestFetchLines:
     def test_fetch_lines_normal_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -68,6 +76,32 @@ class TestFetchStations:
         response.raise_for_status.return_value = None
         monkeypatch.setattr(station.requests, "get", Mock(return_value=response))
         assert station.fetch_stations("Yamanote") == [{"name": "Tokyo", "x": "139.767125", "y": "35.681236"}]
+
+
+class TestFetchAllStations:
+    def test_fetch_all_stations_deduplicates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(station, "fetch_lines", lambda prefecture: ["Line A", "Line B"])
+        monkeypatch.setattr(
+            station,
+            "fetch_stations",
+            lambda line: [
+                {"name": "Tokyo", "x": "139.767125", "y": "35.681236", "prefecture": "Tokyo"},
+                {"name": "Shinjuku", "x": "139.700258", "y": "35.690921", "prefecture": "Tokyo"},
+            ]
+            if line == "Line A"
+            else [
+                {"name": "Tokyo", "x": "139.7671249", "y": "35.6812361", "prefecture": "Tokyo"},
+                {"name": "Shibuya", "x": "139.701636", "y": "35.658034", "prefecture": "Tokyo"},
+            ],
+        )
+        monkeypatch.setattr(station.time, "sleep", lambda _: None)
+
+        result = station.fetch_all_stations("Tokyo")
+
+        assert list(result["station_name"]) == ["Tokyo", "Shinjuku", "Shibuya"]
+        assert len(result) == 3
+        assert result.loc[result["station_name"] == "Tokyo", "line"].tolist() == ["Line A"]
+        assert set(result["line"]) == {"Line A", "Line B"}
 
 
 class TestStationCache:

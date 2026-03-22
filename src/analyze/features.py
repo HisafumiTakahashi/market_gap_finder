@@ -6,89 +6,167 @@ import logging
 
 import pandas as pd
 
+from src.preprocess.mesh_converter import lat_lon_to_mesh_quarter
+
 logger = logging.getLogger(__name__)
 
 
-def _neighbor_mesh_codes(mesh3: str) -> list[str]:
-    """Return the 8 neighboring third-level mesh codes, wrapping across boundaries."""
+def _mesh_col(df: pd.DataFrame) -> str:
+    """DataFrameからメッシュカラム名を検出する。"""
+    if "jis_mesh" in df.columns:
+        return "jis_mesh"
+    if "jis_mesh3" in df.columns:
+        return "jis_mesh3"
+    return "jis_mesh"
+
+
+def _shift_mesh3(mesh3: str, lat_steps: int, lon_steps: int) -> str | None:
+    """Shift an 8-digit mesh3 code by third-mesh steps."""
+    code = str(mesh3)
+    if len(code) != 8 or not code.isdigit():
+        return None
+
+    p = int(code[0:2])
+    u = int(code[2:4])
+    q = int(code[4])
+    r = int(code[5])
+    s = int(code[6])
+    t = int(code[7])
+
+    ns = s + lat_steps
+    nt = t + lon_steps
+    nq, nr = q, r
+    np_, nu = p, u
+
+    while ns < 0:
+        ns += 10
+        nq -= 1
+    while ns > 9:
+        ns -= 10
+        nq += 1
+
+    while nt < 0:
+        nt += 10
+        nr -= 1
+    while nt > 9:
+        nt -= 10
+        nr += 1
+
+    while nq < 0:
+        nq += 8
+        np_ -= 1
+    while nq > 7:
+        nq -= 8
+        np_ += 1
+
+    while nr < 0:
+        nr += 8
+        nu -= 1
+    while nr > 7:
+        nr -= 8
+        nu += 1
+
+    if np_ < 0 or nu < 0:
+        return None
+    return f"{np_:02d}{nu:02d}{nq}{nr}{ns}{nt}"
+
+
+def _neighbor_mesh_codes_mesh3(mesh3: str) -> list[str]:
+    """Return the 8 neighboring third-level mesh codes."""
     mesh3 = str(mesh3)
     if len(mesh3) != 8 or not mesh3.isdigit():
         return []
 
-    p = int(mesh3[0:2])
-    u = int(mesh3[2:4])
-    q = int(mesh3[4])
-    r = int(mesh3[5])
-    s = int(mesh3[6])
-    t = int(mesh3[7])
-    neighbors = []
-
+    neighbors: list[str] = []
     for ds in (-1, 0, 1):
         for dt in (-1, 0, 1):
             if ds == 0 and dt == 0:
                 continue
+            shifted = _shift_mesh3(mesh3, ds, dt)
+            if shifted is not None:
+                neighbors.append(shifted)
+    return neighbors
 
-            ns, nt = s + ds, t + dt
-            nq, nr = q, r
-            np_, nu = p, u
 
-            if ns < 0:
-                ns = 9
-                nq -= 1
-            elif ns > 9:
-                ns = 0
-                nq += 1
+def _neighbor_mesh_codes_quarter(mesh: str) -> list[str]:
+    """Return the 8 neighboring quarter-mesh codes."""
+    code = str(mesh)
+    if len(code) != 10 or not code.isdigit():
+        return []
 
-            if nt < 0:
-                nt = 9
-                nr -= 1
-            elif nt > 9:
-                nt = 0
-                nr += 1
+    parent = code[:8]
+    lat_idx = int(code[8])
+    lon_idx = int(code[9])
+    neighbors: list[str] = []
 
-            if nq < 0:
-                nq = 7
-                np_ -= 1
-            elif nq > 7:
-                nq = 0
-                np_ += 1
+    for dlat in (-1, 0, 1):
+        for dlon in (-1, 0, 1):
+            if dlat == 0 and dlon == 0:
+                continue
 
-            if nr < 0:
-                nr = 7
-                nu -= 1
-            elif nr > 7:
-                nr = 0
-                nu += 1
+            next_lat_idx = lat_idx + dlat
+            next_lon_idx = lon_idx + dlon
+            parent_lat_shift = 0
+            parent_lon_shift = 0
 
-            neighbors.append(f"{np_:02d}{nu:02d}{nq}{nr}{ns}{nt}")
+            if next_lat_idx < 0:
+                next_lat_idx += 2
+                parent_lat_shift -= 1
+            elif next_lat_idx > 1:
+                next_lat_idx -= 2
+                parent_lat_shift += 1
+
+            if next_lon_idx < 0:
+                next_lon_idx += 2
+                parent_lon_shift -= 1
+            elif next_lon_idx > 1:
+                next_lon_idx -= 2
+                parent_lon_shift += 1
+
+            shifted_parent = _shift_mesh3(parent, parent_lat_shift, parent_lon_shift)
+            if shifted_parent is None:
+                continue
+            neighbors.append(f"{shifted_parent}{next_lat_idx}{next_lon_idx}")
 
     return neighbors
 
 
+def _neighbor_mesh_codes(mesh: str) -> list[str]:
+    """Return the 8 neighboring mesh codes for mesh3 or quarter meshes."""
+    mesh = str(mesh)
+    if len(mesh) == 10 and mesh.isdigit():
+        return _neighbor_mesh_codes_quarter(mesh)
+    if len(mesh) == 8 and mesh.isdigit():
+        return _neighbor_mesh_codes_mesh3(mesh)
+    return []
+
+
 def add_genre_diversity(df: pd.DataFrame) -> pd.DataFrame:
     """Add the number of unique genres within each mesh."""
-    if df.empty or "jis_mesh3" not in df.columns:
+    mesh_col = _mesh_col(df)
+    if df.empty or mesh_col not in df.columns:
         df = df.copy()
         df["genre_diversity"] = 0
         return df
 
-    mesh_genre_count = df.groupby("jis_mesh3")["unified_genre"].nunique().rename("genre_diversity")
-    return df.merge(mesh_genre_count, on="jis_mesh3", how="left")
+    mesh_genre_count = df.groupby(mesh_col)["unified_genre"].nunique().rename("genre_diversity")
+    return df.merge(mesh_genre_count, on=mesh_col, how="left")
 
 
 def add_genre_hhi(df: pd.DataFrame) -> pd.DataFrame:
     """Add Herfindahl-Hirschman Index by mesh."""
-    if df.empty or "jis_mesh3" not in df.columns:
+    mesh_col = _mesh_col(df)
+    if df.empty or mesh_col not in df.columns:
         df = df.copy()
         df["genre_hhi"] = 0.0
         return df
 
     out = df.copy()
     rc = pd.to_numeric(out["restaurant_count"], errors="coerce").fillna(0)
-    mesh_total = rc.groupby(out["jis_mesh3"]).transform("sum")
+    mesh_total = rc.groupby(out[mesh_col]).transform("sum")
     share = rc / mesh_total.replace(0, 1)
     share_sq = share**2
-    mesh_hhi_sum = share_sq.groupby(out["jis_mesh3"]).transform("sum")
+    mesh_hhi_sum = share_sq.groupby(out[mesh_col]).transform("sum")
     other_total = mesh_total - rc
     out["genre_hhi"] = mesh_hhi_sum
     out.loc[other_total == 0, "genre_hhi"] = 0.0
@@ -97,25 +175,27 @@ def add_genre_hhi(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_other_genre_count(df: pd.DataFrame) -> pd.DataFrame:
     """Add the total restaurant count of all other genres within the mesh."""
-    if df.empty or "jis_mesh3" not in df.columns:
+    mesh_col = _mesh_col(df)
+    if df.empty or mesh_col not in df.columns:
         df = df.copy()
         df["other_genre_count"] = 0
         return df
 
-    mesh_total = df.groupby("jis_mesh3")["restaurant_count"].transform("sum")
+    mesh_total = df.groupby(mesh_col)["restaurant_count"].transform("sum")
     df = df.copy()
     df["other_genre_count"] = mesh_total - df["restaurant_count"]
     return df
 
 
 def add_genre_share(df: pd.DataFrame) -> pd.DataFrame:
-    """メッシュ内での当該ジャンルの店舗数シェアを追加する。"""
-    if df.empty or "jis_mesh3" not in df.columns:
+    """Add row-level genre share within each mesh."""
+    mesh_col = _mesh_col(df)
+    if df.empty or mesh_col not in df.columns:
         out = df.copy()
         out["genre_share"] = 0.0
         return out
 
-    mesh_total = df.groupby("jis_mesh3")["restaurant_count"].transform("sum")
+    mesh_total = df.groupby(mesh_col)["restaurant_count"].transform("sum")
     out = df.copy()
     out["genre_share"] = out["restaurant_count"] / mesh_total.replace(0, 1)
     return out
@@ -123,60 +203,63 @@ def add_genre_share(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_neighbor_competition(df: pd.DataFrame) -> pd.DataFrame:
     """Add average restaurant count in neighboring meshes."""
-    if df.empty or "jis_mesh3" not in df.columns:
+    mesh_col = _mesh_col(df)
+    if df.empty or mesh_col not in df.columns:
         df = df.copy()
         df["neighbor_avg_restaurants"] = 0.0
         return df
 
-    mesh_total = df.groupby("jis_mesh3")["restaurant_count"].sum().to_dict()
+    mesh_total = df.groupby(mesh_col)["restaurant_count"].sum().to_dict()
 
-    def _calc_neighbor_avg(mesh3: str) -> float:
-        neighbors = _neighbor_mesh_codes(mesh3)
+    def _calc_neighbor_avg(mesh_code: str) -> float:
+        neighbors = _neighbor_mesh_codes(mesh_code)
         if not neighbors:
             return 0.0
         counts = [mesh_total.get(n, 0) for n in neighbors]
         return sum(counts) / len(counts)
 
-    neighbor_map = {mesh: _calc_neighbor_avg(mesh) for mesh in df["jis_mesh3"].dropna().unique()}
+    neighbor_map = {mesh: _calc_neighbor_avg(mesh) for mesh in df[mesh_col].dropna().unique()}
     out = df.copy()
-    out["neighbor_avg_restaurants"] = out["jis_mesh3"].map(neighbor_map).fillna(0.0)
+    out["neighbor_avg_restaurants"] = out[mesh_col].map(neighbor_map).fillna(0.0)
     return out
 
 
 def add_neighbor_population(df: pd.DataFrame) -> pd.DataFrame:
-    """近傍メッシュの平均人口を追加する。"""
-    if df.empty or "jis_mesh3" not in df.columns:
+    """Add average population in neighboring meshes."""
+    mesh_col = _mesh_col(df)
+    if df.empty or mesh_col not in df.columns:
         out = df.copy()
         out["neighbor_avg_population"] = 0.0
         return out
 
-    mesh_population = df.groupby("jis_mesh3")["population"].first().fillna(0).to_dict()
+    mesh_population = df.groupby(mesh_col)["population"].first().fillna(0).to_dict()
 
-    def _calc_neighbor_avg(mesh3: str) -> float:
-        neighbors = _neighbor_mesh_codes(mesh3)
+    def _calc_neighbor_avg(mesh_code: str) -> float:
+        neighbors = _neighbor_mesh_codes(mesh_code)
         if not neighbors:
             return 0.0
         populations = [mesh_population.get(n, 0) for n in neighbors]
         return float(sum(populations) / len(populations))
 
-    neighbor_map = {mesh: _calc_neighbor_avg(mesh) for mesh in df["jis_mesh3"].dropna().unique()}
+    neighbor_map = {mesh: _calc_neighbor_avg(mesh) for mesh in df[mesh_col].dropna().unique()}
     out = df.copy()
-    out["neighbor_avg_population"] = out["jis_mesh3"].map(neighbor_map).fillna(0.0)
+    out["neighbor_avg_population"] = out[mesh_col].map(neighbor_map).fillna(0.0)
     return out
 
 
 def add_saturation_index(df: pd.DataFrame) -> pd.DataFrame:
     """Add restaurants-per-population saturation index by mesh (LOO)."""
-    if df.empty or "jis_mesh3" not in df.columns:
+    mesh_col = _mesh_col(df)
+    if df.empty or mesh_col not in df.columns:
         df = df.copy()
         df["saturation_index"] = 0.0
         return df
 
     out = df.copy()
-    mesh_total = out.groupby("jis_mesh3")["restaurant_count"].transform("sum")
+    mesh_total = out.groupby(mesh_col)["restaurant_count"].transform("sum")
     other_total = mesh_total - out["restaurant_count"]
     pop = (
-        pd.to_numeric(out.groupby("jis_mesh3")["population"].transform("first"), errors="coerce")
+        pd.to_numeric(out.groupby(mesh_col)["population"].transform("first"), errors="coerce")
         .fillna(0)
         .clip(lower=0)
     )
@@ -185,7 +268,7 @@ def add_saturation_index(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_genre_saturation(df: pd.DataFrame) -> pd.DataFrame:
-    """ジャンル別の人口あたり店舗密度を追加する。"""
+    """Add genre-level population-normalized saturation."""
     if df.empty or "population" not in df.columns:
         out = df.copy()
         out["genre_saturation"] = 0.0
@@ -240,7 +323,7 @@ def add_nearest_station(df: pd.DataFrame, station_df: pd.DataFrame) -> pd.DataFr
 
 
 def add_nearest_station_passengers(df: pd.DataFrame, passenger_df: pd.DataFrame) -> pd.DataFrame:
-    """最寄り駅の乗降客数を追加する。"""
+    """Add nearest station passenger volume."""
     from src.collect.station import haversine_km
 
     out = df.copy()
@@ -288,7 +371,8 @@ def add_nearest_station_passengers(df: pd.DataFrame, passenger_df: pd.DataFrame)
 
 def add_land_price(df: pd.DataFrame, price_df: pd.DataFrame) -> pd.DataFrame:
     """Map land price data to mesh level and merge into the analysis frame."""
-    if df.empty or price_df is None or price_df.empty or "jis_mesh3" not in df.columns:
+    mesh_col = _mesh_col(df)
+    if df.empty or price_df is None or price_df.empty or mesh_col not in df.columns:
         out = df.copy()
         out["land_price"] = 0.0
         return out
@@ -297,15 +381,12 @@ def add_land_price(df: pd.DataFrame, price_df: pd.DataFrame) -> pd.DataFrame:
     price_work["lat"] = pd.to_numeric(price_work["lat"], errors="coerce")
     price_work["lng"] = pd.to_numeric(price_work["lng"], errors="coerce")
     price_work = price_work.dropna(subset=["lat", "lng"])
-
-    from src.preprocess.mesh_converter import lat_lon_to_mesh3
-
-    price_work["jis_mesh3"] = [
-        lat_lon_to_mesh3(lat, lng) for lat, lng in zip(price_work["lat"], price_work["lng"])
+    price_work["jis_mesh"] = [
+        lat_lon_to_mesh_quarter(lat, lng) for lat, lng in zip(price_work["lat"], price_work["lng"])
     ]
-    mesh_price = price_work.groupby("jis_mesh3")["price_per_sqm"].mean().rename("land_price")
+    mesh_price = price_work.groupby("jis_mesh")["price_per_sqm"].mean().rename("land_price")
 
-    result = df.merge(mesh_price, on="jis_mesh3", how="left")
+    result = df.merge(mesh_price, left_on=mesh_col, right_index=True, how="left")
     result["land_price"] = result["land_price"].fillna(0.0)
     return result
 

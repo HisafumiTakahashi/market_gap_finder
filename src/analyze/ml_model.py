@@ -45,6 +45,15 @@ LOG_TRANSFORM_FEATURES = {"other_genre_count", "neighbor_avg_restaurants", "goog
 CATEGORICAL_FEATURE = "unified_genre"
 TARGET_COL = "restaurant_count"
 
+
+def _mesh_col(df: pd.DataFrame) -> str:
+    """Prefer jis_mesh and fall back to legacy mesh column names."""
+    if "jis_mesh" in df.columns:
+        return "jis_mesh"
+    if "jis_mesh3" in df.columns:
+        return "jis_mesh3"
+    return "jis_mesh"
+
 DEFAULT_PARAMS = {
     "objective": "regression",
     "metric": "rmse",
@@ -115,7 +124,7 @@ def train_cv(
     n_splits: int = 5,
     params: dict | None = None,
     num_rounds: int = DEFAULT_NUM_ROUNDS,
-    group_col: str = "jis_mesh3",
+    group_col: str = "jis_mesh",
     filter_outliers: bool = True,
     target_mode: str = "raw",
 ) -> dict:
@@ -137,8 +146,9 @@ def train_cv(
 
     groups = None
     splitter: GroupKFold | KFold
-    if group_col in work.columns:
-        groups = work[group_col]
+    resolved_group_col = group_col if group_col in work.columns else _mesh_col(work)
+    if resolved_group_col in work.columns:
+        groups = work[resolved_group_col]
         splitter = GroupKFold(n_splits=n_splits)
     else:
         splitter = KFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -233,7 +243,7 @@ def tune_hyperparams(
     df: pd.DataFrame,
     n_trials: int = 50,
     n_splits: int = 5,
-    group_col: str = "jis_mesh3",
+    group_col: str = "jis_mesh",
 ) -> dict:
     """Optunaでハイパーパラメータを最適化する。"""
     if optuna is None:

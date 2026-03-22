@@ -262,7 +262,7 @@ def _find_mesh_stats_data_id(mesh1_code: str, survey_year: str = "2020") -> str 
 
     # 最少レコード数のテーブル = 3次メッシュ（最も粗い解像度）
     best: dict[str, Any] | None = None
-    best_count = float("inf")
+    best_count = 0
     for t in tables:
         if not isinstance(t, dict):
             continue
@@ -270,8 +270,8 @@ def _find_mesh_stats_data_id(mesh1_code: str, survey_year: str = "2020") -> str 
         try:
             count = int(count_str)
         except (ValueError, TypeError):
-            count = float("inf")
-        if count < best_count:
+            count = 0
+        if count > best_count:
             best_count = count
             best = t
 

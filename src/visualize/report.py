@@ -15,6 +15,14 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
+def _mesh_col(df: pd.DataFrame) -> str:
+    if "jis_mesh" in df.columns:
+        return "jis_mesh"
+    if "jis_mesh3" in df.columns:
+        return "jis_mesh3"
+    return "mesh_code"
+
+
 def generate_explanation(row: pd.Series) -> str:
     """Generate a short Japanese explanation for a candidate row."""
     parts: list[str] = []
@@ -27,10 +35,22 @@ def generate_explanation(row: pd.Series) -> str:
     station_name = str(row.get("nearest_station_name", "") or "")
     gap = float(row.get("market_gap", 0) or 0)
 
+    if (
+        pop <= 0
+        and rest <= 0
+        and not genre
+        and diversity <= 0
+        and saturation <= 0
+        and station_dist <= 0
+        and not station_name
+        and gap <= 0
+    ):
+        return "追加確認が必要です。"
+
     if pop >= 50000:
         parts.append(f"人口{pop:,}人の高需要エリアです")
     elif pop >= 30000:
-        parts.append(f"人口{pop:,}人の中規模需要エリアです")
+        parts.append(f"人口{pop:,}人の中需要帯エリアです")
     elif pop > 0:
         parts.append(f"人口{pop:,}人の商圏です")
 
@@ -47,7 +67,7 @@ def generate_explanation(row: pd.Series) -> str:
     elif 0 < diversity <= 3:
         parts.append("ジャンル偏りがあり差別化余地があります")
 
-    if saturation < 5:
+    if 0 < saturation < 5:
         parts.append("飽和度が低く新規出店余地があります")
     elif saturation > 20:
         parts.append("飽和度が高く競争が激しい可能性があります")
@@ -61,12 +81,12 @@ def generate_explanation(row: pd.Series) -> str:
             parts.append(f"{station_name}駅から約{station_dist:.1f}kmです")
 
     if gap > 1.0:
-        parts.append(f"ML予測で大きな供給不足が示唆されています（gap={gap:.2f}）")
+        parts.append(f"ML推定で大きな需要超過が示唆されています（gap={gap:.2f}）")
     elif gap > 0.5:
-        parts.append(f"ML予測で供給不足が示唆されています（gap={gap:.2f}）")
+        parts.append(f"ML推定で需要超過が示唆されています（gap={gap:.2f}）")
 
     if not parts:
-        return "データ量が限られるため追加確認が必要です。"
+        return "追加確認が必要です。"
     return "。".join(parts) + "。"
 
 
@@ -83,7 +103,7 @@ def _build_map(candidates: pd.DataFrame) -> str:
         score = float(row.get("opportunity_score", 0))
         color = "red" if score >= 0.8 else "orange" if score >= 0.5 else "blue"
         popup_html = (
-            f"<b>#{rank} {row.get('jis_mesh3', '')} × {row.get('unified_genre', '')}</b><br>"
+            f"<b>#{rank} {row.get('jis_mesh', row.get('jis_mesh3', ''))} / {row.get('unified_genre', '')}</b><br>"
             f"Score: {score:.3f}<br>"
             f"人口: {int(row.get('population', 0)):,}<br>"
             f"競合: {int(row.get('restaurant_count', 0))}店舗<br>"
@@ -109,7 +129,7 @@ _REPORT_TEMPLATE = Template(
 </head>
 <body>
 <h1>Market Gap Report</h1>
-<p>エリア: {{ area_tag }} / 生成時刻: {{ generated_at }} / 候補数: {{ total_candidates }}</p>
+<p>エリア: {{ area_tag }} / 生成日時: {{ generated_at }} / 候補件数: {{ total_candidates }}</p>
 <iframe srcdoc="{{ map_html | e }}" style="width:100%;height:500px;border:none;"></iframe>
 </body>
 </html>"""
@@ -129,10 +149,14 @@ def generate_report(tag: str, top_n: int = 20, ml_r2: str = "-") -> Path:
 
     v3_top = df.nlargest(top_n, "opportunity_score").copy()
     if ml_df is not None and "market_gap" in ml_df.columns:
-        gap_map = ml_df.set_index(["jis_mesh3", "unified_genre"])["market_gap"].to_dict()
-        pred_map = ml_df.set_index(["jis_mesh3", "unified_genre"])["predicted_count"].to_dict()
-        v3_top["market_gap"] = v3_top.apply(lambda r: gap_map.get((r["jis_mesh3"], r["unified_genre"]), 0), axis=1)
-        v3_top["predicted_count"] = v3_top.apply(lambda r: pred_map.get((r["jis_mesh3"], r["unified_genre"]), 0), axis=1)
+        ml_mesh_col = _mesh_col(ml_df)
+        df_mesh_col = _mesh_col(v3_top)
+        gap_map = ml_df.set_index([ml_mesh_col, "unified_genre"])["market_gap"].to_dict()
+        pred_map = ml_df.set_index([ml_mesh_col, "unified_genre"])["predicted_count"].to_dict()
+        v3_top["market_gap"] = v3_top.apply(lambda r: gap_map.get((r[df_mesh_col], r["unified_genre"]), 0), axis=1)
+        v3_top["predicted_count"] = v3_top.apply(
+            lambda r: pred_map.get((r[df_mesh_col], r["unified_genre"]), 0), axis=1
+        )
 
     html = _REPORT_TEMPLATE.render(
         area_tag=tag,

@@ -11,7 +11,7 @@ from src.analyze.ml_model import compare_with_v3, compute_market_gap, prepare_fe
 def ml_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "jis_mesh3": ["m1", "m1", "m2", "m2", "m3", "m3"],
+            "jis_mesh": ["m1", "m1", "m2", "m2", "m3", "m3"],
             "population": [10000, 15000, 20000, 25000, 30000, 35000],
             "genre_diversity": [2, 3, 2, 4, 3, 5],
             "genre_hhi": [0.6, 0.4, 0.5, 0.3, 0.35, 0.25],
@@ -113,7 +113,7 @@ class TestTrainCv:
                 yield np.array([2, 3, 4, 5]), np.array([0, 1])
 
         monkeypatch.setattr("src.analyze.ml_model.KFold", DummyKFold)
-        result = train_cv(ml_df.drop(columns=["jis_mesh3"]), n_splits=2, num_rounds=5)
+        result = train_cv(ml_df.drop(columns=["jis_mesh"]), n_splits=2, num_rounds=5)
         assert called["used"] is True
         assert len(result["oof_predictions"]) == len(ml_df)
 
@@ -207,7 +207,7 @@ class TestTuneHyperparams:
             n_splits: int = 5,
             params: dict | None = None,
             num_rounds: int = 300,
-            group_col: str = "jis_mesh3",
+            group_col: str = "jis_mesh",
             target_mode: str = "raw",
         ) -> dict:
             calls.append(
@@ -231,7 +231,7 @@ class TestTuneHyperparams:
         monkeypatch.setattr("src.analyze.ml_model.optuna", DummyOptuna())
         monkeypatch.setattr("src.analyze.ml_model.train_cv", fake_train_cv)
 
-        result = tune_hyperparams(ml_df, n_trials=3, n_splits=2, group_col="jis_mesh3")
+        result = tune_hyperparams(ml_df, n_trials=3, n_splits=2, group_col="jis_mesh")
 
         assert result["best_params"] == {
             "num_leaves": 31,
@@ -248,5 +248,5 @@ class TestTuneHyperparams:
         assert result["best_r2"] == pytest.approx(0.789)
         assert len(calls) == 2
         assert calls[0]["n_splits"] == 2
-        assert calls[0]["group_col"] == "jis_mesh3"
+        assert calls[0]["group_col"] == "jis_mesh"
         assert calls[0]["num_rounds"] == 120

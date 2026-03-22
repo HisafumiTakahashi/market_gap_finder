@@ -26,6 +26,14 @@ DEFAULT_CENTER_LNG = 139.7671
 DEFAULT_ZOOM_START = 12
 
 
+def _mesh_col(df: pd.DataFrame) -> str:
+    if "jis_mesh" in df.columns:
+        return "jis_mesh"
+    if "jis_mesh3" in df.columns:
+        return "jis_mesh3"
+    return "mesh_code"
+
+
 def _coerce_map_frame(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df.copy()
@@ -73,7 +81,8 @@ def create_population_heatmap(
     if plot_df.empty or "population" not in plot_df.columns:
         return map_obj
     population = pd.to_numeric(plot_df["population"], errors="coerce").fillna(0.0)
-    deduped = plot_df.assign(_pop=population).drop_duplicates(subset=["jis_mesh3"] if "jis_mesh3" in plot_df.columns else ["lat", "lng"])
+    mesh_col = _mesh_col(plot_df)
+    deduped = plot_df.assign(_pop=population).drop_duplicates(subset=[mesh_col] if mesh_col in plot_df.columns else ["lat", "lng"])
     heat_data = [[float(row.lat), float(row.lng), float(row._pop)] for row in deduped.itertuples() if row._pop > 0]
     if heat_data:
         HeatMap(
@@ -122,7 +131,7 @@ def create_marker_map(df: pd.DataFrame, top_n: int = 20) -> folium.Map:
         return map_obj
 
     for _, row in plot_df.iterrows():
-        mesh_code = row.get("mesh_code", row.get("jis_mesh3", ""))
+        mesh_code = row.get("mesh_code", row.get("jis_mesh", row.get("jis_mesh3", "")))
         unified_genre = row.get("unified_genre", "")
         score = float(pd.to_numeric(pd.Series([row.get("opportunity_score", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
         competitor_density = int(pd.to_numeric(pd.Series([row.get("competitor_density", row.get("restaurant_count", 0))]), errors="coerce").fillna(0).iloc[0])
@@ -184,9 +193,11 @@ def _load_and_score(tag: str = "result", version: str = "v2") -> pd.DataFrame:
                     ml_gap_path = settings.PROCESSED_DATA_DIR / f"{tag}_ml_gap.csv"
                     if ml_gap_path.exists():
                         ml_df = pd.read_csv(ml_gap_path)
-                        merge_cols = [col for col in ("jis_mesh3", "unified_genre", "market_gap", "predicted_count", "gap_count") if col in ml_df.columns]
-                        if {"jis_mesh3", "unified_genre", "market_gap"}.issubset(merge_cols):
-                            df = df.merge(ml_df[merge_cols], on=["jis_mesh3", "unified_genre"], how="left")
+                        ml_mesh_col = _mesh_col(ml_df)
+                        merge_cols = [col for col in (ml_mesh_col, "unified_genre", "market_gap", "predicted_count", "gap_count") if col in ml_df.columns]
+                        df_mesh_col = _mesh_col(df)
+                        if {ml_mesh_col, "unified_genre", "market_gap"}.issubset(merge_cols) and df_mesh_col in df.columns:
+                            df = df.merge(ml_df[merge_cols], left_on=[df_mesh_col, "unified_genre"], right_on=[ml_mesh_col, "unified_genre"], how="left")
                             return compute_opportunity_score_v4(df, ml_gap=df["market_gap"])
                     return compute_opportunity_score_v4(df)
                 return df

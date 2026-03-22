@@ -44,7 +44,7 @@ def compute_all_scores(df: pd.DataFrame) -> pd.DataFrame:
     統合済みCSVに既に空間特徴量が含まれている場合はそのまま利用する。
     """
     # v1 用のベースカラム
-    base_cols = ["jis_mesh3", "unified_genre", "restaurant_count", "population",
+    base_cols = ["jis_mesh", "jis_mesh3", "unified_genre", "restaurant_count", "population",
                  "avg_rating", "total_reviews", "lat", "lng", "mesh_code"]
     clean = df[[c for c in base_cols if c in df.columns]].copy()
 
@@ -100,12 +100,13 @@ def analyze_version_comparison(df: pd.DataFrame, top_n: int) -> None:
     print("=" * 60)
     for ver in ["v1", "v2", "v3"]:
         col = f"score_{ver}"
-        top = df.nlargest(top_n, col)[["jis_mesh3", "unified_genre", "restaurant_count", "population", col]]
+        mesh_col = "jis_mesh" if "jis_mesh" in df.columns else "jis_mesh3"
+        top = df.nlargest(top_n, col)[[mesh_col, "unified_genre", "restaurant_count", "population", col]]
         print(f"\n--- {ver} Top {top_n} ---")
         for rank, (_, row) in enumerate(top.iterrows(), 1):
             pop = int(row.get("population", 0))
             rest = int(row["restaurant_count"])
-            print(f"  {rank:2d}. {row['jis_mesh3']} x {row['unified_genre']:10s} | "
+            print(f"  {rank:2d}. {row[mesh_col]} x {row['unified_genre']:10s} | "
                   f"score={row[col]:.4f} | pop={pop:,} | shops={rest}")
     print()
 
@@ -145,7 +146,8 @@ def analyze_top_candidate_quality(df: pd.DataFrame, top_n: int) -> None:
     if not low_pop.empty:
         print(f"  ⚠ 人口1万未満のメッシュが上位に {len(low_pop)} 件:")
         for _, row in low_pop.iterrows():
-            print(f"    {row['jis_mesh3']} x {row['unified_genre']} (pop={int(row['population']):,})")
+            mesh_col = "jis_mesh" if "jis_mesh" in row.index else "jis_mesh3"
+            print(f"    {row[mesh_col]} x {row['unified_genre']} (pop={int(row['population']):,})")
     else:
         print(f"  OK: 上位 {top_n} 件すべて人口1万以上")
 
@@ -156,7 +158,8 @@ def analyze_top_candidate_quality(df: pd.DataFrame, top_n: int) -> None:
         if not high_sat.empty:
             print(f"  ⚠ 飽和度が中央値の3倍超のメッシュが上位に {len(high_sat)} 件:")
             for _, row in high_sat.iterrows():
-                print(f"    {row['jis_mesh3']} x {row['unified_genre']} (sat={row['saturation_index']:.1f})")
+                mesh_col = "jis_mesh" if "jis_mesh" in row.index else "jis_mesh3"
+                print(f"    {row[mesh_col]} x {row['unified_genre']} (sat={row['saturation_index']:.1f})")
         else:
             print(f"  OK: 上位 {top_n} 件すべて飽和度が適正範囲")
 
@@ -180,13 +183,15 @@ def analyze_rank_stability(df: pd.DataFrame, top_n: int) -> None:
     if not moved_up.empty:
         print(f"  ↑ v3で大幅上昇（5位以上）: {len(moved_up)} 件")
         for _, row in moved_up.head(5).iterrows():
-            print(f"    {row['jis_mesh3']} x {row['unified_genre']:10s} | "
+            mesh_col = "jis_mesh" if "jis_mesh" in row.index else "jis_mesh3"
+            print(f"    {row[mesh_col]} x {row['unified_genre']:10s} | "
                   f"v2={int(row['rank_v2'])}位 → v3={int(row['rank_v3'])}位 (+{int(row['rank_change'])})")
 
     if not moved_down.empty:
         print(f"  ↓ v3で大幅下降（5位以上）: {len(moved_down)} 件")
         for _, row in moved_down.head(5).iterrows():
-            print(f"    {row['jis_mesh3']} x {row['unified_genre']:10s} | "
+            mesh_col = "jis_mesh" if "jis_mesh" in row.index else "jis_mesh3"
+            print(f"    {row[mesh_col]} x {row['unified_genre']:10s} | "
                   f"v2={int(row['rank_v2'])}位 → v3={int(row['rank_v3'])}位 ({int(row['rank_change'])})")
 
     if moved_up.empty and moved_down.empty:

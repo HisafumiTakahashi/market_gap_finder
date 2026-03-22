@@ -11,7 +11,7 @@ from src.analyze.ml_model import compare_with_v3, compute_market_gap, prepare_fe
 def ml_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "jis_mesh3": ["m1", "m1", "m2", "m2", "m3", "m3"],
+            "jis_mesh": ["m1", "m1", "m2", "m2", "m3", "m3"],
             "population": [10000, 15000, 20000, 25000, 30000, 35000],
             "genre_diversity": [2, 3, 2, 4, 3, 5],
             "genre_hhi": [0.6, 0.4, 0.5, 0.3, 0.35, 0.25],
@@ -22,6 +22,11 @@ def ml_df() -> pd.DataFrame:
             "nearest_station_distance": [0.2, 0.4, 0.5, 0.6, 0.8, 1.0],
             "nearest_station_passengers": [10000, 12000, 14000, 16000, 18000, 20000],
             "land_price": [100, 110, 120, 130, 140, 150],
+            "google_match_count": [1, 0, 1, 1, 0, 1],
+            "google_avg_rating": [4.2, 0.0, 4.0, 3.8, 0.0, 4.5],
+            "google_total_reviews": [20, 0, 10, 5, 0, 30],
+            "reviews_per_shop": [20, 0, 10, 5, 0, 30],
+            "google_density": [0.8, 0.9, 1.1, 1.2, 1.4, 1.5],
             "unified_genre": ["cafe", "ramen", "cafe", "izakaya", "sushi", "cafe"],
             "restaurant_count": [2, 3, 4, 5, 6, 7],
             "opportunity_score": [0.2, 0.5, 0.4, 0.7, 0.6, 0.9],
@@ -42,6 +47,9 @@ class TestPrepareFeatures:
             "saturation_index",
             "nearest_station_distance",
             "nearest_station_passengers",
+            "google_avg_rating",
+            "reviews_per_shop",
+            "google_density",
             "genre_encoded",
             "price_x_saturation",
             "pop_x_station_dist",
@@ -49,6 +57,7 @@ class TestPrepareFeatures:
         assert "pop_x_genre" not in features.columns
         assert "neighbor_pop_x_genre" not in features.columns
         assert features.loc[0, "other_genre_count"] == pytest.approx(np.log1p(3))
+        assert features.loc[1, "google_avg_rating"] == pytest.approx(0.0)
         assert target.iloc[0] == pytest.approx(np.log1p(2))
 
     def test_interaction_feature_values(self, ml_df: pd.DataFrame) -> None:
@@ -104,7 +113,7 @@ class TestTrainCv:
                 yield np.array([2, 3, 4, 5]), np.array([0, 1])
 
         monkeypatch.setattr("src.analyze.ml_model.KFold", DummyKFold)
-        result = train_cv(ml_df.drop(columns=["jis_mesh3"]), n_splits=2, num_rounds=5)
+        result = train_cv(ml_df.drop(columns=["jis_mesh"]), n_splits=2, num_rounds=5)
         assert called["used"] is True
         assert len(result["oof_predictions"]) == len(ml_df)
 
@@ -198,7 +207,7 @@ class TestTuneHyperparams:
             n_splits: int = 5,
             params: dict | None = None,
             num_rounds: int = 300,
-            group_col: str = "jis_mesh3",
+            group_col: str = "jis_mesh",
             target_mode: str = "raw",
         ) -> dict:
             calls.append(
@@ -222,7 +231,7 @@ class TestTuneHyperparams:
         monkeypatch.setattr("src.analyze.ml_model.optuna", DummyOptuna())
         monkeypatch.setattr("src.analyze.ml_model.train_cv", fake_train_cv)
 
-        result = tune_hyperparams(ml_df, n_trials=3, n_splits=2, group_col="jis_mesh3")
+        result = tune_hyperparams(ml_df, n_trials=3, n_splits=2, group_col="jis_mesh")
 
         assert result["best_params"] == {
             "num_leaves": 31,
@@ -239,5 +248,5 @@ class TestTuneHyperparams:
         assert result["best_r2"] == pytest.approx(0.789)
         assert len(calls) == 2
         assert calls[0]["n_splits"] == 2
-        assert calls[0]["group_col"] == "jis_mesh3"
+        assert calls[0]["group_col"] == "jis_mesh"
         assert calls[0]["num_rounds"] == 120

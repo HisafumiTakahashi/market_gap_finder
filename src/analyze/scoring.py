@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 _COMPETITOR_OFFSET = 0.1
 
 
+def _mesh_col(df: pd.DataFrame) -> str:
+    """Prefer jis_mesh and fall back to legacy mesh columns."""
+    if "jis_mesh" in df.columns:
+        return "jis_mesh"
+    if "jis_mesh3" in df.columns:
+        return "jis_mesh3"
+    return "mesh_code"
+
+
 def _normalize(series: pd.Series) -> pd.Series:
     """Normalize numeric values to 0-1."""
     values = pd.to_numeric(series, errors="coerce").fillna(0.0)
@@ -46,10 +55,13 @@ def compute_demand_score(df: pd.DataFrame) -> pd.Series:
     if df.empty:
         return pd.Series(dtype=float, index=df.index, name="demand_score")
 
+    mesh_col = _mesh_col(df)
+    if mesh_col not in df.columns:
+        return _normalize(pd.to_numeric(df["restaurant_count"], errors="coerce").fillna(0.0)).rename("demand_score")
     mesh_total_count = (
         pd.to_numeric(df["restaurant_count"], errors="coerce")
         .fillna(0.0)
-        .groupby(df["mesh_code"])
+        .groupby(df[mesh_col])
         .transform("sum")
     )
     return _normalize(mesh_total_count).rename("demand_score")
@@ -89,7 +101,7 @@ def rank_opportunities(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
 
 def generate_reason(row: pd.Series) -> str:
     """Generate a simple reason string for one recommendation row."""
-    mesh_code = str(row.get("mesh_code", "unknown_mesh"))
+    mesh_code = str(row.get("mesh_code", row.get("jis_mesh", row.get("jis_mesh3", "unknown_mesh"))))
     unified_genre = str(row.get("unified_genre", "unknown_genre"))
     opportunity_score = float(pd.to_numeric(pd.Series([row.get("opportunity_score", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
     demand_score = float(pd.to_numeric(pd.Series([row.get("demand_score", 0.0)]), errors="coerce").fillna(0.0).iloc[0])

@@ -15,6 +15,14 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
+def _mesh_col(df: pd.DataFrame) -> str:
+    if "jis_mesh" in df.columns:
+        return "jis_mesh"
+    if "jis_mesh3" in df.columns:
+        return "jis_mesh3"
+    return "mesh_code"
+
+
 def generate_explanation(row: pd.Series) -> str:
     """Generate a short Japanese explanation for a candidate row."""
     parts: list[str] = []
@@ -27,10 +35,22 @@ def generate_explanation(row: pd.Series) -> str:
     station_name = str(row.get("nearest_station_name", "") or "")
     gap = float(row.get("market_gap", 0) or 0)
 
+    if (
+        pop <= 0
+        and rest <= 0
+        and not genre
+        and diversity <= 0
+        and saturation <= 0
+        and station_dist <= 0
+        and not station_name
+        and gap <= 0
+    ):
+        return "追加確認が必要です。"
+
     if pop >= 50000:
         parts.append(f"人口{pop:,}人の高需要エリアです")
     elif pop >= 30000:
-        parts.append(f"人口{pop:,}人の中規模需要エリアです")
+        parts.append(f"人口{pop:,}人の中需要帯エリアです")
     elif pop > 0:
         parts.append(f"人口{pop:,}人の商圏です")
 
@@ -47,7 +67,7 @@ def generate_explanation(row: pd.Series) -> str:
     elif 0 < diversity <= 3:
         parts.append("ジャンル偏りがあり差別化余地があります")
 
-    if saturation < 5:
+    if 0 < saturation < 5:
         parts.append("飽和度が低く新規出店余地があります")
     elif saturation > 20:
         parts.append("飽和度が高く競争が激しい可能性があります")
@@ -61,12 +81,12 @@ def generate_explanation(row: pd.Series) -> str:
             parts.append(f"{station_name}駅から約{station_dist:.1f}kmです")
 
     if gap > 1.0:
-        parts.append(f"ML予測で大きな供給不足が示唆されています（gap={gap:.2f}）")
+        parts.append(f"ML推定で大きな需要超過が示唆されています（gap={gap:.2f}）")
     elif gap > 0.5:
-        parts.append(f"ML予測で供給不足が示唆されています（gap={gap:.2f}）")
+        parts.append(f"ML推定で需要超過が示唆されています（gap={gap:.2f}）")
 
     if not parts:
-        return "データ量が限られるため追加確認が必要です。"
+        return "追加確認が必要です。"
     return "。".join(parts) + "。"
 
 
@@ -83,7 +103,7 @@ def _build_map(candidates: pd.DataFrame) -> str:
         score = float(row.get("opportunity_score", 0))
         color = "red" if score >= 0.8 else "orange" if score >= 0.5 else "blue"
         popup_html = (
-            f"<b>#{rank} {row.get('jis_mesh3', '')} × {row.get('unified_genre', '')}</b><br>"
+            f"<b>#{rank} {row.get('jis_mesh', row.get('jis_mesh3', ''))} / {row.get('unified_genre', '')}</b><br>"
             f"Score: {score:.3f}<br>"
             f"人口: {int(row.get('population', 0)):,}<br>"
             f"競合: {int(row.get('restaurant_count', 0))}店舗<br>"
@@ -106,11 +126,100 @@ _REPORT_TEMPLATE = Template(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Market Gap Report - {{ area_tag }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif;
+         background: #f5f7fa; color: #333; line-height: 1.6; padding: 24px; }
+  h1 { font-size: 1.6rem; margin-bottom: 8px; color: #1a1a2e; }
+  h2 { font-size: 1.2rem; margin: 24px 0 12px; color: #16213e; border-left: 4px solid #0f3460; padding-left: 10px; }
+  .meta { font-size: 0.85rem; color: #666; margin-bottom: 20px; }
+  /* --- stats cards --- */
+  .stats { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 24px; }
+  .stat-card { background: #fff; border-radius: 8px; padding: 16px 20px; min-width: 160px;
+               flex: 1; box-shadow: 0 1px 4px rgba(0,0,0,0.08); text-align: center; }
+  .stat-card .label { font-size: 0.78rem; color: #888; margin-bottom: 4px; }
+  .stat-card .value { font-size: 1.5rem; font-weight: 700; color: #0f3460; }
+  /* --- map --- */
+  .map-wrap { margin-bottom: 24px; }
+  .map-wrap iframe { width: 100%; height: 520px; border: none; border-radius: 8px;
+                     box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  /* --- table --- */
+  .table-wrap { overflow-x: auto; margin-bottom: 32px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.08); font-size: 0.85rem; }
+  thead { background: #0f3460; color: #fff; }
+  th, td { padding: 10px 12px; text-align: left; white-space: nowrap; }
+  th { font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f9fbfd; }
+  tbody tr:hover { background: #eef2f7; }
+  td.explanation { white-space: normal; max-width: 360px; font-size: 0.8rem; color: #555; }
+  .score-high { color: #d32f2f; font-weight: 700; }
+  .score-mid  { color: #e65100; font-weight: 600; }
+  .score-low  { color: #1565c0; }
+  footer { text-align: center; font-size: 0.75rem; color: #aaa; margin-top: 16px; }
+</style>
 </head>
 <body>
+
 <h1>Market Gap Report</h1>
-<p>エリア: {{ area_tag }} / 生成時刻: {{ generated_at }} / 候補数: {{ total_candidates }}</p>
-<iframe srcdoc="{{ map_html | e }}" style="width:100%;height:500px;border:none;"></iframe>
+<p class="meta">エリア: <strong>{{ area_tag }}</strong> &nbsp;|&nbsp; 生成日時: {{ generated_at }} &nbsp;|&nbsp; ML R&sup2;: {{ ml_r2 }}</p>
+
+<!-- ===== 統計サマリー ===== -->
+<h2>統計サマリー</h2>
+<div class="stats">
+  <div class="stat-card">
+    <div class="label">総候補数</div>
+    <div class="value">{{ total_candidates }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">平均人口</div>
+    <div class="value">{{ avg_population }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">平均スコア</div>
+    <div class="value">{{ avg_score }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">平均 Market Gap</div>
+    <div class="value">{{ avg_market_gap }}</div>
+  </div>
+</div>
+
+<!-- ===== マップ ===== -->
+<h2>出店候補マップ（上位{{ top_n }}件）</h2>
+<div class="map-wrap">
+  <iframe srcdoc="{{ map_html | e }}"></iframe>
+</div>
+
+<!-- ===== 候補テーブル ===== -->
+<h2>出店候補ランキング（上位{{ top_n }}件）</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+  <th>順位</th><th>メッシュコード</th><th>ジャンル</th><th>スコア</th>
+  <th>人口</th><th>店舗数</th><th>Market Gap</th><th>最寄駅</th><th>解説</th>
+</tr>
+</thead>
+<tbody>
+{% for c in candidates %}
+<tr>
+  <td>{{ c.rank }}</td>
+  <td>{{ c.mesh_code }}</td>
+  <td>{{ c.genre }}</td>
+  <td class="{{ c.score_class }}">{{ c.score }}</td>
+  <td>{{ c.population }}</td>
+  <td>{{ c.restaurant_count }}</td>
+  <td>{{ c.market_gap }}</td>
+  <td>{{ c.station }}</td>
+  <td class="explanation">{{ c.explanation }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<footer>Market Gap Finder &copy; {{ year }}</footer>
 </body>
 </html>"""
 )
@@ -129,21 +238,60 @@ def generate_report(tag: str, top_n: int = 20, ml_r2: str = "-") -> Path:
 
     v3_top = df.nlargest(top_n, "opportunity_score").copy()
     if ml_df is not None and "market_gap" in ml_df.columns:
-        gap_map = ml_df.set_index(["jis_mesh3", "unified_genre"])["market_gap"].to_dict()
-        pred_map = ml_df.set_index(["jis_mesh3", "unified_genre"])["predicted_count"].to_dict()
-        v3_top["market_gap"] = v3_top.apply(lambda r: gap_map.get((r["jis_mesh3"], r["unified_genre"]), 0), axis=1)
-        v3_top["predicted_count"] = v3_top.apply(lambda r: pred_map.get((r["jis_mesh3"], r["unified_genre"]), 0), axis=1)
+        ml_mesh_col = _mesh_col(ml_df)
+        df_mesh_col = _mesh_col(v3_top)
+        gap_map = ml_df.set_index([ml_mesh_col, "unified_genre"])["market_gap"].to_dict()
+        pred_map = ml_df.set_index([ml_mesh_col, "unified_genre"])["predicted_count"].to_dict()
+        v3_top["market_gap"] = v3_top.apply(lambda r: gap_map.get((r[df_mesh_col], r["unified_genre"]), 0), axis=1)
+        v3_top["predicted_count"] = v3_top.apply(
+            lambda r: pred_map.get((r[df_mesh_col], r["unified_genre"]), 0), axis=1
+        )
+
+    # --- Build candidate rows for the table ---
+    mesh_col = _mesh_col(v3_top)
+    candidates = []
+    for rank, (_, row) in enumerate(v3_top.iterrows(), 1):
+        score_val = float(row.get("opportunity_score", 0))
+        score_class = "score-high" if score_val >= 0.8 else "score-mid" if score_val >= 0.5 else "score-low"
+        gap_val = float(row.get("market_gap", 0) or 0)
+        station_name = str(row.get("nearest_station_name", "") or "")
+        station_dist = float(row.get("nearest_station_distance", 0) or 0)
+        station_str = f"{station_name}（{station_dist * 1000:.0f}m）" if station_name else "-"
+        candidates.append(
+            {
+                "rank": rank,
+                "mesh_code": row.get(mesh_col, ""),
+                "genre": row.get("unified_genre", ""),
+                "score": f"{score_val:.3f}",
+                "score_class": score_class,
+                "population": f"{int(row.get('population', 0) or 0):,}",
+                "restaurant_count": int(row.get("restaurant_count", 0) or 0),
+                "market_gap": f"{gap_val:.2f}" if gap_val else "-",
+                "station": station_str,
+                "explanation": generate_explanation(row),
+            }
+        )
+
+    # --- Compute summary statistics ---
+    avg_pop = f"{int(df['population'].mean()):,}" if "population" in df.columns else "-"
+    avg_score = (
+        f"{df['opportunity_score'].mean():.3f}" if "opportunity_score" in df.columns else "-"
+    )
+    has_gap = "market_gap" in v3_top.columns and v3_top["market_gap"].notna().any()
+    avg_gap = f"{v3_top['market_gap'].mean():.2f}" if has_gap else "-"
 
     html = _REPORT_TEMPLATE.render(
         area_tag=tag,
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         total_candidates=len(df),
         top_n=top_n,
-        avg_population=f"{int(df['population'].mean()):,}" if "population" in df.columns else "-",
+        avg_population=avg_pop,
+        avg_score=avg_score,
+        avg_market_gap=avg_gap,
         ml_r2=ml_r2,
         map_html=_build_map(v3_top),
-        v3_candidates=[],
-        ml_candidates=[],
+        candidates=candidates,
+        year=datetime.now().year,
     )
 
     output_dir = settings.PROJECT_ROOT / "reports"

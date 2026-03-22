@@ -3,15 +3,21 @@
 
 APIキー、検索パラメータ、ファイルパスなど
 プロジェクト全体で使用する定数・設定値を一元管理する。
+APIキーは .env ファイルで管理（.gitignore対象）。
 """
 
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # ──────────────────────────────────────
 # プロジェクトルート
 # ──────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# .env を読み込み
+load_dotenv(PROJECT_ROOT / ".env")
 
 # ──────────────────────────────────────
 # データディレクトリ
@@ -20,11 +26,11 @@ RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 
 # ──────────────────────────────────────
-# API キー（環境変数から取得）
+# API キー（.env → 環境変数から取得）
 # ──────────────────────────────────────
-HOTPEPPER_API_KEY: str = os.getenv("HOTPEPPER_API_KEY", "a43c9f65735eed2c")
-GOOGLE_PLACES_API_KEY: str = os.getenv("GOOGLE_PLACES_API_KEY", "")
-ESTAT_API_KEY: str = os.getenv("ESTAT_API_KEY", "1de94b2d66d3db18a316a3afd04c9a85f363cba3")
+HOTPEPPER_API_KEY: str = os.getenv("HOTPEPPER_API_KEY", "")
+GOOGLE_PLACES_API_KEY: str = os.getenv("GOOGLE_PLACES_API_KEY", "")  # 勝手にAPIアクセスしないこと
+ESTAT_API_KEY: str = os.getenv("ESTAT_API_KEY", "")
 
 # ──────────────────────────────────────
 # ホットペッパー API 設定
@@ -60,7 +66,8 @@ TARGET_GENRES: list[str] = [
     "カレー",
 ]
 
-# メッシュグリッド設定（緯度経度の刻み幅）
+# API 収集グリッド間隔（Hotpepper / Google Places の走査ステップ）
+# ※ 分析用メッシュは JIS 標準地域メッシュ（mesh_converter.py）を使用
 MESH_LAT_STEP: float = 0.005   # 約 500 m
 MESH_LON_STEP: float = 0.00625  # 約 500 m
 

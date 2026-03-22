@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""e-Stat 統合済みエリアデータを作成する CLI スクリプト。"""
+"""e-Stat integration pipeline CLI."""
 
 from __future__ import annotations
 
@@ -11,211 +11,238 @@ import pandas as pd
 
 from config import settings
 from src.analyze.features import add_all_features
-from src.analyze.scoring import (
-    compute_opportunity_score_v2,
-    compute_opportunity_score_v3,
-    generate_reason,
-    run_scoring_v3,
-)
+from src.analyze.scoring import compute_opportunity_score_v3, generate_reason, run_scoring_v3
 from src.collect.estat import fetch_mesh_population, save_raw
 from src.collect.land_price import load_land_price_cache
 from src.collect.station import load_station_cache
 from src.collect.station_passengers import load_passenger_cache
 from src.preprocess.cleaner import load_hotpepper, map_genre
-from src.preprocess.mesh_converter import assign_jis_mesh, lat_lon_to_mesh3, mesh3_to_mesh1
-
+from src.preprocess.google_matcher import match_google_to_hotpepper
+from src.preprocess.mesh_converter import (
+    assign_jis_mesh_quarter,
+    lat_lon_to_mesh_quarter,
+    mesh_quarter_to_mesh1,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    """CLI 引数を解釈する。"""
+    """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="e-Stat mesh population integration pipeline.")
-    parser.add_argument("--tag", type=str, default="tokyo", help="対象データのタグ。")
-    parser.add_argument("--top-n", type=int, default=20, help="表示する上位件数。")
+    parser.add_argument("--tag", type=str, default="tokyo", help="Area tag.")
+    parser.add_argument("--top-n", type=int, default=20, help="Number of top rows to display.")
     parser.add_argument(
         "--stats-id",
         type=str,
         default="0003412636",
-        help="取得対象の国勢調査統計表 ID。",
+        help="e-Stat population dataset ID.",
     )
     parser.add_argument(
         "--skip-fetch",
         action="store_true",
-        help="e-Stat API 取得をスキップして既存 CSV を利用する。",
+        help="Skip e-Stat API fetch and reuse cached CSV.",
     )
     return parser.parse_args()
 
 
 def aggregate_hotpepper_by_mesh(df: pd.DataFrame) -> pd.DataFrame:
-    """HotPepper データを JIS 3 次メッシュとジャンル単位で集計する。"""
-    prepared = assign_jis_mesh(map_genre(df))
-    prepared["rating"] = pd.to_numeric(prepared.get("rating"), errors="coerce")
-    prepared["review_count"] = (
-        pd.to_numeric(prepared.get("review_count"), errors="coerce").fillna(0).astype(int)
-    )
+    """Aggregate HotPepper rows by JIS quarter mesh and genre."""
+    prepared = assign_jis_mesh_quarter(map_genre(df))
     prepared["lat"] = pd.to_numeric(prepared.get("lat"), errors="coerce")
     prepared["lng"] = pd.to_numeric(prepared.get("lng"), errors="coerce")
-    prepared = prepared.dropna(subset=["jis_mesh3"]).copy()
+    prepared = prepared.dropna(subset=["jis_mesh"]).copy()
+    has_google_cols = {"google_rating", "google_review_count"} <= set(prepared.columns)
 
-    aggregated = (
-        prepared.groupby(["jis_mesh3", "unified_genre"], dropna=False)
-        .agg(
-            restaurant_count=("id", "size"),
-            avg_rating=("rating", "mean"),
-            total_reviews=("review_count", "sum"),
-            lat=("lat", "mean"),
-            lng=("lng", "mean"),
+    if has_google_cols:
+        prepared["google_rating"] = pd.to_numeric(prepared["google_rating"], errors="coerce")
+        prepared["google_review_count"] = pd.to_numeric(prepared["google_review_count"], errors="coerce")
+        aggregated = (
+            prepared.groupby(["jis_mesh", "unified_genre"], dropna=False)
+            .agg(
+                restaurant_count=("id", "size"),
+                lat=("lat", "mean"),
+                lng=("lng", "mean"),
+                google_avg_rating=("google_rating", "mean"),
+                google_total_reviews=("google_review_count", "sum"),
+                google_match_count=("google_rating", lambda s: int(s.notna().sum())),
+            )
+            .reset_index()
         )
-        .reset_index()
-    )
-    aggregated["mesh_code"] = aggregated["jis_mesh3"]
+    else:
+        aggregated = (
+            prepared.groupby(["jis_mesh", "unified_genre"], dropna=False)
+            .agg(
+                restaurant_count=("id", "size"),
+                lat=("lat", "mean"),
+                lng=("lng", "mean"),
+            )
+            .reset_index()
+        )
+
+    aggregated["mesh_code"] = aggregated["jis_mesh"]
     return aggregated
 
 
 def normalize_population_df(df: pd.DataFrame) -> pd.DataFrame:
-    """e-Stat メッシュ人口データを 3 次メッシュ単位へ正規化する。"""
+    """Normalize e-Stat population data to quarter-mesh totals.
+
+    e-Stat の4分の1メッシュデータに欠損がある場合（無人メッシュは秘匿で省略される）、
+    親3次メッシュの人口合計から既知の子メッシュ人口を差し引いた残りを
+    欠損子メッシュに均等按分するフォールバックを実行する。
+    """
     if df.empty:
-        return pd.DataFrame(columns=["jis_mesh3", "population"])
+        return pd.DataFrame(columns=["jis_mesh", "population"])
 
     normalized = df.copy()
-
     if "mesh_code" not in normalized.columns:
         raise KeyError("mesh_code column is required in e-Stat data")
 
-    # 8桁のメッシュコードを抽出（3次メッシュ）
-    normalized["jis_mesh3"] = normalized["mesh_code"].astype(str).str.extract(r"(\d{8})", expand=False)
+    normalized["jis_mesh"] = normalized["mesh_code"].astype(str).str.extract(r"(\d{8,10})", expand=False)
     normalized["population"] = (
-        normalized["population"]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-        .pipe(pd.to_numeric, errors="coerce")
+        normalized["population"].astype(str).str.replace(",", "", regex=False).pipe(pd.to_numeric, errors="coerce")
     )
 
-    # cat01 フィルタは fetch_mesh_population 側で実施済みだが、念のためフォールバック
     if "cat01" in normalized.columns:
         cat01_str = normalized["cat01"].astype(str)
-        total_mask = cat01_str.isin(["0010"]) | cat01_str.str.contains("総数|総人口|人口（総数）", na=False)
+        total_mask = cat01_str.isin(["0010"]) | cat01_str.str.contains("人口|総数|男女", na=False)
         if total_mask.any():
             normalized = normalized.loc[total_mask].copy()
 
-    normalized = normalized.dropna(subset=["jis_mesh3", "population"])
+    normalized = normalized.dropna(subset=["jis_mesh", "population"])
     if normalized.empty:
-        return pd.DataFrame(columns=["jis_mesh3", "population"])
+        return pd.DataFrame(columns=["jis_mesh", "population"])
 
-    return (
-        normalized.groupby("jis_mesh3", as_index=False)
+    # 10桁メッシュの集計
+    quarter = normalized[normalized["jis_mesh"].astype(str).str.len() == 10].copy()
+    quarter_pop = (
+        quarter.groupby("jis_mesh", as_index=False)
         .agg(population=("population", "sum"))
-        .sort_values("jis_mesh3")
-        .reset_index(drop=True)
     )
+
+    # 親3次メッシュ別の平均人口を計算 — フォールバック按分用
+    quarter_pop["_mesh3"] = quarter_pop["jis_mesh"].astype(str).str[:8]
+    mesh3_avg = quarter_pop.groupby("_mesh3")["population"].mean().to_dict()
+    quarter_pop = quarter_pop.drop(columns=["_mesh3"])
+
+    return quarter_pop.sort_values("jis_mesh").reset_index(drop=True), mesh3_avg
 
 
 def load_or_fetch_population(tag: str, mesh1_codes: list[str], skip_fetch: bool) -> pd.DataFrame:
-    """e-Stat 人口データを取得または既存 CSV から読み込む。"""
+    """Load cached e-Stat data or fetch it."""
     cache_name = f"{tag}_estat_population.csv"
     cache_path = settings.RAW_DATA_DIR / cache_name
 
     if skip_fetch:
         if not cache_path.exists():
             raise FileNotFoundError(cache_path)
-        logger.info("既存の e-Stat 人口データを読み込みます: %s", cache_path)
+        logger.info("Loading cached e-Stat population data: %s", cache_path)
         return pd.read_csv(cache_path)
 
-    logger.info("e-Stat API から %d 件の 1 次メッシュ人口データを取得します", len(mesh1_codes))
+    logger.info("Fetching e-Stat population data for %d mesh1 codes", len(mesh1_codes))
     population_df = fetch_mesh_population(mesh1_codes=mesh1_codes)
     save_raw(population_df, cache_name)
     return population_df
 
 
 def save_integrated(df: pd.DataFrame, tag: str) -> None:
-    """統合済みデータを保存する。"""
+    """Save integrated output data."""
     settings.PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
     output_path = settings.PROCESSED_DATA_DIR / f"{tag}_integrated.csv"
     df.to_csv(output_path, index=False, encoding="utf-8-sig")
-    logger.info("統合結果を保存しました: %s", output_path)
+    logger.info("Saved integrated data: %s", output_path)
 
 
-def _merge_google_ratings(integrated_df: pd.DataFrame, google_df: pd.DataFrame) -> pd.DataFrame:
-    """Google Placesのrating/review_countをメッシュ単位で集計しマージする。"""
-    gdf = google_df.copy()
-    gdf["lat"] = pd.to_numeric(gdf["lat"], errors="coerce")
-    gdf["lng"] = pd.to_numeric(gdf["lng"], errors="coerce")
-    gdf["rating"] = pd.to_numeric(gdf["rating"], errors="coerce")
-    gdf["review_count"] = pd.to_numeric(gdf["review_count"], errors="coerce")
-    gdf = gdf.dropna(subset=["lat", "lng"])
+def _merge_google_ratings(integrated_df: pd.DataFrame, google_df: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Compute derived Google aggregate features from pre-matched mesh data and raw Google data."""
+    out = integrated_df.copy()
+    for col, default in (("google_avg_rating", 0.0), ("google_total_reviews", 0.0), ("google_match_count", 0)):
+        if col not in out.columns:
+            out[col] = default
+        else:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(default)
+    out["google_match_count"] = out["google_match_count"].astype(int)
+    out["reviews_per_shop"] = out["google_total_reviews"] / out["google_match_count"].replace(0, 1)
 
-    gdf["jis_mesh3"] = [lat_lon_to_mesh3(lat, lng) for lat, lng in zip(gdf["lat"], gdf["lng"])]
+    population = pd.to_numeric(out.get("population"), errors="coerce").fillna(0.0)
+    if google_df is not None and not google_df.empty and "jis_mesh" in out.columns:
+        gdf = google_df.copy()
+        gdf["lat"] = pd.to_numeric(gdf["lat"], errors="coerce")
+        gdf["lng"] = pd.to_numeric(gdf["lng"], errors="coerce")
+        gdf = gdf.dropna(subset=["lat", "lng"])
+        gdf["jis_mesh"] = [lat_lon_to_mesh_quarter(lat, lng) for lat, lng in zip(gdf["lat"], gdf["lng"])]
+        mesh_gp_count = gdf.groupby("jis_mesh").size().rename("google_place_count")
+        out = out.merge(mesh_gp_count, on="jis_mesh", how="left")
+        out["google_place_count"] = out["google_place_count"].fillna(0).astype(int)
+        out["google_density"] = out["google_place_count"] / (population / 10000 + 0.1)
+        out["google_density"] = out["google_density"].fillna(0.0)
+    else:
+        out["google_density"] = 0.0
 
-    mesh_ratings = (
-        gdf.groupby("jis_mesh3")
-        .agg(
-            google_avg_rating=("rating", "mean"),
-            google_total_reviews=("review_count", "sum"),
-            google_place_count=("rating", "count"),
-        )
-        .reset_index()
-    )
-
-    out = integrated_df.merge(mesh_ratings, on="jis_mesh3", how="left")
-    out["google_avg_rating"] = out["google_avg_rating"].fillna(0.0)
-    out["google_total_reviews"] = out["google_total_reviews"].fillna(0.0)
-    out["google_place_count"] = out["google_place_count"].fillna(0).astype(int)
-    out["reviews_per_shop"] = out["google_total_reviews"] / out["google_place_count"].replace(0, 1)
-
-    logger.info("Google Places ratings merged: %d rows with data", (out["google_avg_rating"] > 0).sum())
     return out
 
 
 def main() -> int:
-    """e-Stat 統合パイプラインを実行する。"""
+    """Run the e-Stat integration pipeline."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = parse_args()
 
     try:
-        logger.info("HotPepper データを読み込みます: tag=%s", args.tag)
+        logger.info("Loading HotPepper data for tag=%s", args.tag)
         hotpepper_df = load_hotpepper(args.tag)
 
-        logger.info("ジャンル正規化と JIS 3 次メッシュ付与を実行します")
-        mesh_agg_df = aggregate_hotpepper_by_mesh(hotpepper_df)
-        logger.info("HotPepper メッシュ集計件数: %d", len(mesh_agg_df))
+        google_path = settings.RAW_DATA_DIR / f"{args.tag}_google_places.csv"
+        google_df: pd.DataFrame | None = None
+        google_matched_df = hotpepper_df
+        if google_path.exists():
+            google_df = pd.read_csv(google_path)
+            logger.info("Loaded Google Places rows: %d", len(google_df))
+            google_matched_df = match_google_to_hotpepper(hotpepper_df, google_df)
+            matched_count = int(google_matched_df["google_rating"].notna().sum())
+            logger.info(
+                "Google Places matched: %d/%d shops (%.1f%%)",
+                matched_count,
+                len(google_matched_df),
+                (matched_count / len(google_matched_df) * 100) if len(google_matched_df) else 0.0,
+            )
 
-        mesh1_codes = sorted({mesh3_to_mesh1(code) for code in mesh_agg_df["jis_mesh3"].dropna().astype(str)})
-        logger.info("必要な 1 次メッシュ数: %d", len(mesh1_codes))
+        logger.info("Aggregating HotPepper rows to quarter mesh")
+        mesh_agg_df = aggregate_hotpepper_by_mesh(google_matched_df)
+        logger.info("HotPepper mesh rows: %d", len(mesh_agg_df))
+
+        mesh1_codes = sorted({mesh_quarter_to_mesh1(code) for code in mesh_agg_df["jis_mesh"].dropna().astype(str)})
+        logger.info("Unique mesh1 codes: %d", len(mesh1_codes))
 
         population_raw_df = load_or_fetch_population(
             tag=args.tag,
             mesh1_codes=mesh1_codes,
             skip_fetch=args.skip_fetch,
         )
-        population_df = normalize_population_df(population_raw_df)
-        logger.info("正規化後の人口メッシュ件数: %d", len(population_df))
+        population_df, fallback_residuals = normalize_population_df(population_raw_df)
+        logger.info("Normalized population mesh rows: %d", len(population_df))
 
-        integrated_df = mesh_agg_df.merge(population_df, on="jis_mesh3", how="left")
-        integrated_df["population"] = pd.to_numeric(
-            integrated_df["population"], errors="coerce"
-        ).fillna(0.0)
+        integrated_df = mesh_agg_df.merge(population_df, on="jis_mesh", how="left")
+        integrated_df["population"] = pd.to_numeric(integrated_df["population"], errors="coerce").fillna(0.0)
 
-        logger.info("空間特徴量を追加します")
-        # 外部データ（駅・地価・乗降客数）があればロード
+        # フォールバック: e-Statに4分の1メッシュが無い場合、親メッシュの子平均人口で補完
+        if fallback_residuals:
+            missing_mask = integrated_df["population"] == 0.0
+            if missing_mask.any():
+                missing_mesh3 = integrated_df.loc[missing_mask, "jis_mesh"].astype(str).str[:8]
+                fallback_pop = missing_mesh3.map(fallback_residuals).fillna(0.0)
+                integrated_df.loc[missing_mask, "population"] = fallback_pop.values
+                filled = int(missing_mask.sum() - (integrated_df["population"] == 0.0).sum())
+                logger.info("Fallback population fill: %d/%d rows filled from parent mesh averages", filled, int(missing_mask.sum()))
+
+        logger.info("Adding station, passenger, and land-price features")
         station_df = load_station_cache(args.tag)
         price_df = load_land_price_cache(args.tag)
         passenger_df = load_passenger_cache(args.tag)
-        if station_df is not None:
-            logger.info("駅データを読み込みました: %d 駅", len(station_df))
-        if price_df is not None:
-            logger.info("地価データを読み込みました: %d 件", len(price_df))
-        if passenger_df is not None:
-            logger.info("乗降客数データを読み込みました: %d 駅", len(passenger_df))
 
         featured_df = add_all_features(
             integrated_df, station_df=station_df, passenger_df=passenger_df, price_df=price_df
         )
-        google_path = settings.RAW_DATA_DIR / f"{args.tag}_google_places.csv"
-        if google_path.exists():
-            google_df = pd.read_csv(google_path)
-            logger.info("Google Placesデータ読み込み: %d 件", len(google_df))
-            featured_df = _merge_google_ratings(featured_df, google_df)
+        featured_df = _merge_google_ratings(featured_df, google_df)
 
         full_scored_df = compute_opportunity_score_v3(featured_df).sort_values(
             "opportunity_score", ascending=False
@@ -224,12 +251,12 @@ def main() -> int:
         save_integrated(full_scored_df, args.tag)
 
         top_candidates = run_scoring_v3(featured_df, top_n=args.top_n)
-        logger.info("上位 %d 件を表示します", min(args.top_n, len(top_candidates)))
+        logger.info("Displaying top %d rows", min(args.top_n, len(top_candidates)))
         for rank, row in enumerate(top_candidates.itertuples(index=False), start=1):
             logger.info(
-                "%d位: mesh=%s genre=%s score=%.4f population=%.0f",
+                "%d. mesh=%s genre=%s score=%.4f population=%.0f",
                 rank,
-                getattr(row, "jis_mesh3", ""),
+                getattr(row, "jis_mesh", getattr(row, "jis_mesh3", "")),
                 getattr(row, "unified_genre", ""),
                 getattr(row, "opportunity_score", 0.0),
                 getattr(row, "population", 0.0),
@@ -237,7 +264,7 @@ def main() -> int:
 
         return 0
     except Exception:
-        logger.exception("e-Stat 統合パイプラインの実行に失敗しました")
+        logger.exception("e-Stat integration pipeline failed")
         return 1
 
 

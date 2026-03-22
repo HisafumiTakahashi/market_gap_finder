@@ -31,6 +31,35 @@ class TestParseLandPriceGml:
         assert result.loc[0, "price_per_sqm"] == pytest.approx(1200000.0)
 
 
+class TestParseLandPriceGeojson:
+    def test_parse_minimal_geojson(self) -> None:
+        geojson = b"""
+        {
+          "type": "FeatureCollection",
+          "features": [
+            {
+              "type": "Feature",
+              "properties": {"L01_008": "1200000"},
+              "geometry": {"type": "Point", "coordinates": [139.76, 35.68]}
+            }
+          ]
+        }
+        """
+
+        result = land_price._parse_land_price_geojson(geojson)
+
+        assert len(result) == 1
+        assert result.loc[0, "lat"] == pytest.approx(35.68)
+        assert result.loc[0, "lng"] == pytest.approx(139.76)
+        assert result.loc[0, "price_per_sqm"] == pytest.approx(1200000.0)
+
+    def test_parse_invalid_json_returns_empty(self) -> None:
+        result = land_price._parse_land_price_geojson(b"\x80\x81\x82")
+
+        assert result.empty
+        assert list(result.columns) == ["lat", "lng", "price_per_sqm"]
+
+
 class TestExtractPriceRecord:
     def test_extract_price_record_normal(self) -> None:
         elem = ET.fromstring(
@@ -64,6 +93,11 @@ class TestLandPriceCache:
         loaded = land_price.load_land_price_cache("tokyo")
         assert loaded is not None
         pd.testing.assert_frame_equal(loaded, land_price_df)
+
+    def test_load_missing_cache_returns_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(land_price.settings, "EXTERNAL_DATA_DIR", tmp_path)
+
+        assert land_price.load_land_price_cache("missing") is None
 
 
 class TestPrefectureCodes:

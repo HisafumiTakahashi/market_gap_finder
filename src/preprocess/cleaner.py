@@ -84,9 +84,12 @@ def map_genre(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def assign_mesh_code(df: pd.DataFrame) -> pd.DataFrame:
-    """緯度経度からメッシュコードを算出して付与する。
+    """緯度経度から独自メッシュコードを算出して付与する。
 
-    緯度・経度を数値化したうえで設定済みのメッシュ刻み幅ごとにビン分けし、
+    レガシー関数。現パイプラインでは JIS 標準 4 分の 1 メッシュ（10 桁）を
+    使用するため、``mesh_converter.assign_jis_mesh_quarter`` を推奨する。
+
+    緯度・経度を数値化したうえで設定済みの収集グリッド刻み幅ごとにビン分けし、
     `lat_bin_lng_bin` 形式の文字列を `mesh_code` 列として追加する。
     緯度経度が欠損または数値化できない行には `unknown` を設定する。
 

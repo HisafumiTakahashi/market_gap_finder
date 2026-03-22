@@ -12,7 +12,7 @@ try:
     import optuna
 except ImportError:  # pragma: no cover - exercised in runtime environments without Optuna installed
     optuna = None
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import r2_score, root_mean_squared_error
 from sklearn.model_selection import GroupKFold, KFold
 
 from config import settings
@@ -39,10 +39,20 @@ NUMERIC_FEATURES = [
     "land_price",
     "google_avg_rating",
     "reviews_per_shop",
+    "google_density",
 ]
-LOG_TRANSFORM_FEATURES = {"other_genre_count", "neighbor_avg_restaurants"}
+LOG_TRANSFORM_FEATURES = {"other_genre_count", "neighbor_avg_restaurants", "google_total_reviews"}
 CATEGORICAL_FEATURE = "unified_genre"
 TARGET_COL = "restaurant_count"
+
+
+def _mesh_col(df: pd.DataFrame) -> str:
+    """Prefer jis_mesh and fall back to legacy mesh column names."""
+    if "jis_mesh" in df.columns:
+        return "jis_mesh"
+    if "jis_mesh3" in df.columns:
+        return "jis_mesh3"
+    return "jis_mesh"
 
 DEFAULT_PARAMS = {
     "objective": "regression",
@@ -114,7 +124,7 @@ def train_cv(
     n_splits: int = 5,
     params: dict | None = None,
     num_rounds: int = DEFAULT_NUM_ROUNDS,
-    group_col: str = "jis_mesh3",
+    group_col: str = "jis_mesh",
     filter_outliers: bool = True,
     target_mode: str = "raw",
 ) -> dict:
@@ -136,8 +146,9 @@ def train_cv(
 
     groups = None
     splitter: GroupKFold | KFold
-    if group_col in work.columns:
-        groups = work[group_col]
+    resolved_group_col = group_col if group_col in work.columns else _mesh_col(work)
+    if resolved_group_col in work.columns:
+        groups = work[resolved_group_col]
         splitter = GroupKFold(n_splits=n_splits)
     else:
         splitter = KFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -172,7 +183,7 @@ def train_cv(
         fold_metrics.append(
             {
                 "fold": fold_idx,
-                "rmse": mean_squared_error(y_val, val_pred, squared=False),
+                "rmse": root_mean_squared_error(y_val, val_pred),
                 "r2": r2_score(y_val, val_pred),
             }
         )
@@ -232,7 +243,7 @@ def tune_hyperparams(
     df: pd.DataFrame,
     n_trials: int = 50,
     n_splits: int = 5,
-    group_col: str = "jis_mesh3",
+    group_col: str = "jis_mesh",
 ) -> dict:
     """Optunaでハイパーパラメータを最適化する。"""
     if optuna is None:
@@ -369,7 +380,7 @@ def train_cross_area(
     return {
         "train_tags": train_tags,
         "test_tag": test_tag,
-        "rmse": mean_squared_error(test_target, predictions, squared=False),
+        "rmse": root_mean_squared_error(test_target, predictions),
         "r2": r2_score(test_target, predictions),
         "predictions": predictions,
         "actual": test_target.to_numpy(),

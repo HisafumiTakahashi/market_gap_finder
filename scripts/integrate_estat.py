@@ -13,9 +13,9 @@ from config import settings
 from src.analyze.features import add_all_features
 from src.analyze.constants import _COMPETITOR_OFFSET, _POP_UNIT
 from src.analyze.scoring import (
-    compute_opportunity_score_v3,
+    compute_opportunity_score_v3b,
     generate_reason,
-    run_scoring_v3,
+    run_scoring_v3b,
 )
 from src.collect.estat import (
     POPULATION_CAT01_ALIASES,
@@ -279,13 +279,13 @@ def main() -> int:
         )
         featured_df = _merge_google_ratings(featured_df, google_df)
 
-        full_scored_df = compute_opportunity_score_v3(featured_df).sort_values(
+        full_scored_df = compute_opportunity_score_v3b(featured_df).sort_values(
             "opportunity_score", ascending=False
         )
         full_scored_df["reason"] = full_scored_df.apply(generate_reason, axis=1)
         save_integrated(full_scored_df, args.tag)
 
-        top_candidates = run_scoring_v3(featured_df, top_n=args.top_n)
+        top_candidates = run_scoring_v3b(featured_df, top_n=args.top_n)
         logger.info("Displaying top %d rows", min(args.top_n, len(top_candidates)))
         for rank, row in enumerate(top_candidates.itertuples(index=False), start=1):
             logger.info(

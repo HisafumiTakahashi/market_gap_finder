@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
         起動設定を保持した名前空間。
     """
     parser = argparse.ArgumentParser(description="Run the area dashboard.")
-    parser.add_argument("--tag", type=str, default="result", help="Data file tag to load.")
+    parser.add_argument("--tag", type=str, default="tokyo", help="Data file tag to load. Dashboard area can also be switched in the UI.")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind the server to.")
     parser.add_argument("--port", type=int, default=8050, help="Port to bind the server to.")
     return parser.parse_args()

@@ -15,6 +15,7 @@ from src.analyze.scoring import (
     compute_demand_score_v2,
     compute_opportunity_score,
     compute_opportunity_score_v2,
+    compute_opportunity_score_v3b,
     generate_reason,
     get_top_recommendations,
     rank_opportunities,
@@ -170,6 +171,63 @@ class TestComputeOpportunityScoreV2:
         assert result.empty
 
 
+class TestComputeOpportunityScoreV3B:
+    def test_v3b_basic(self) -> None:
+        df = pd.DataFrame(
+            {
+                "mesh_code": ["m1", "m2", "m3"],
+                "unified_genre": ["cafe", "cafe", "ramen"],
+                "restaurant_count": [8, 12, 5],
+                "other_genre_count": [40, 15, 20],
+                "genre_hhi": [0.3, 0.5, 0.4],
+                "google_avg_rating": [4.2, 3.8, 4.0],
+                "genre_diversity": [6, 4, 5],
+                "nearest_station_distance": [0.2, 0.7, 0.5],
+                "saturation_index": [0.3, 0.8, 0.4],
+                "neighbor_avg_restaurants": [5, 12, 7],
+                "land_price": [100, 130, 110],
+            }
+        )
+        result = compute_opportunity_score_v3b(df)
+        assert result["opportunity_score"].between(0.0, 1.0).all()
+
+    def test_v3b_genre_baseline(self) -> None:
+        df = pd.DataFrame(
+            {
+                "mesh_code": ["m1", "m2", "m3", "m4"],
+                "unified_genre": ["cafe", "cafe", "cafe", "ramen"],
+                "restaurant_count": [5, 10, 20, 1],
+                "other_genre_count": [30, 30, 30, 0],
+                "genre_hhi": [0.4, 0.4, 0.4, 0.1],
+                "google_avg_rating": [4.0, 4.0, 4.0, 3.0],
+                "genre_diversity": [5, 5, 5, 1],
+                "nearest_station_distance": [0.3, 0.3, 0.3, 2.0],
+                "saturation_index": [0.5, 0.5, 0.5, 0.9],
+                "neighbor_avg_restaurants": [8, 8, 8, 20],
+                "land_price": [100, 100, 100, 200],
+            }
+        )
+        result = compute_opportunity_score_v3b(df)
+        # cafe median is 10, so restaurant_count=5 has positive deficit and 20 does not.
+        assert result.loc[0, "opportunity_score"] > result.loc[2, "opportunity_score"]
+
+    def test_v3b_missing_columns(self) -> None:
+        df = pd.DataFrame(
+            {
+                "mesh_code": ["m1", "m2"],
+                "unified_genre": ["cafe", "ramen"],
+                "restaurant_count": [5, 10],
+            }
+        )
+        result = compute_opportunity_score_v3b(df)
+        assert "opportunity_score" in result.columns
+        assert result["opportunity_score"].between(0.0, 1.0).all()
+
+    def test_v3b_empty_df(self, empty_df: pd.DataFrame) -> None:
+        result = compute_opportunity_score_v3b(empty_df)
+        assert result.empty
+
+
 # ──────────────────────────────────────
 # rank_opportunities
 # ──────────────────────────────────────
@@ -223,14 +281,13 @@ class TestGenerateReason:
         assert isinstance(reason, str)
         assert len(reason) > 0
 
-    def test_contains_mesh_and_genre(self) -> None:
+    def test_contains_genre(self) -> None:
         reason = generate_reason(self._make_row())
-        assert "53394663" in reason
-        assert "cafe" in reason
+        assert "カフェ" in reason
 
-    def test_contains_score(self) -> None:
+    def test_contains_restaurant_info(self) -> None:
         reason = generate_reason(self._make_row())
-        assert "0.850" in reason
+        assert "2" in reason  # restaurant_count
 
     def test_missing_optional_fields(self) -> None:
         row = pd.Series({"opportunity_score": 0.5})

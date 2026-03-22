@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LightGBM市場ギャップ予測モデルの学習スクリプト。"""
+"""Train a LightGBM model and compare ML gaps against heuristic scoring."""
 
 from __future__ import annotations
 
@@ -21,47 +21,57 @@ from src.analyze.ml_model import (
     train_leave_one_area_out,
     tune_hyperparams,
 )
+from src.analyze.scoring import compute_opportunity_score_v3b
 
 logger = logging.getLogger(__name__)
 ALL_TAGS = ["tokyo", "osaka", "nagoya", "fukuoka"]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="LightGBM市場ギャップ予測モデル学習")
-    parser.add_argument("--tag", type=str, default="tokyo", help="対象エリアタグ")
-    parser.add_argument("--combined", action="store_true", help="tokyo, osaka, nagoya を結合して学習")
-    parser.add_argument("--top-n", type=int, default=20, help="表示する上位候補数")
-    parser.add_argument("--folds", type=int, default=5, help="CV分割数")
-    parser.add_argument("--tune", action="store_true", help="Optunaでハイパーパラメータを探索")
-    parser.add_argument("--loao", action="store_true", help="Leave-One-Area-Out CVで汎化性能を測定")
-    parser.add_argument("--two-stage", action="store_true", help="2段階モデル（残差ターゲット）で学習")
+    """Parse CLI arguments."""
+    parser = argparse.ArgumentParser(description="Train a LightGBM model on integrated market-gap data.")
+    parser.add_argument("--tag", type=str, default="tokyo", help="Area tag to train on.")
+    parser.add_argument("--combined", action="store_true", help="Train on all available area CSVs.")
+    parser.add_argument("--top-n", type=int, default=20, help="Number of top rows to display.")
+    parser.add_argument("--folds", type=int, default=5, help="Number of CV folds.")
+    parser.add_argument("--tune", action="store_true", help="Run Optuna hyperparameter tuning before training.")
+    parser.add_argument("--loao", action="store_true", help="Run Leave-One-Area-Out CV for combined training.")
+    parser.add_argument(
+        "--two-stage",
+        action="store_true",
+        help="Train residual targets after subtracting a simple demand baseline.",
+    )
     return parser.parse_args()
 
 
 def load_integrated(tag: str) -> pd.DataFrame:
+    """Load one integrated dataset."""
     path = settings.PROCESSED_DATA_DIR / f"{tag}_integrated.csv"
     if not path.exists():
-        raise FileNotFoundError(f"{path} が見つかりません。先に integrate_estat.py を実行してください。")
+        raise FileNotFoundError(f"{path} not found. Run integrate_estat.py first.")
     return pd.read_csv(path)
 
 
 def load_combined_integrated(tags: list[str]) -> pd.DataFrame:
+    """Load and concatenate multiple integrated datasets."""
     return pd.concat([load_integrated(tag) for tag in tags], ignore_index=True)
 
 
 def print_cv_results(cv_results: dict) -> None:
+    """Print cross-validation metrics."""
     print("=" * 60)
-    print("1. Cross-Validation 結果")
+    print("1. Cross-Validation Results")
     print("=" * 60)
     for metric in cv_results["fold_metrics"]:
         print(f"  Fold {metric['fold']}: RMSE={metric['rmse']:.4f}, R2={metric['r2']:.4f}")
-    print(f"  平均   RMSE={cv_results['avg_rmse']:.4f}, R2={cv_results['avg_r2']:.4f}")
+    print(f"  Average: RMSE={cv_results['avg_rmse']:.4f}, R2={cv_results['avg_r2']:.4f}")
     print()
 
 
 def print_tuning_results(tuning_results: dict) -> None:
+    """Print Optuna tuning summary."""
     print("=" * 60)
-    print("2. Optuna 最適化結果")
+    print("2. Optuna Results")
     print("=" * 60)
     print(f"  best_rmse={tuning_results['best_rmse']:.4f}, best_r2={tuning_results['best_r2']:.4f}")
     print(f"  num_boost_round={tuning_results['best_num_rounds']}")
@@ -71,8 +81,9 @@ def print_tuning_results(tuning_results: dict) -> None:
 
 
 def print_feature_importance(importance_df: pd.DataFrame, section_no: int = 2) -> None:
+    """Print feature importance table."""
     print("=" * 60)
-    print(f"{section_no}. 特徴量重要度 (gain)")
+    print(f"{section_no}. Feature Importance (gain)")
     print("=" * 60)
     total = importance_df["importance"].sum()
     for _, row in importance_df.iterrows():
@@ -83,8 +94,9 @@ def print_feature_importance(importance_df: pd.DataFrame, section_no: int = 2) -
 
 
 def print_top_gaps(gap_df: pd.DataFrame, top_n: int, section_no: int = 3) -> None:
+    """Print top ML market gaps."""
     print("=" * 60)
-    print(f"{section_no}. 市場ギャップ Top {top_n}")
+    print(f"{section_no}. Top {top_n} Market Gaps")
     print("=" * 60)
     top = gap_df.nlargest(top_n, "market_gap")
     for rank, (_, row) in enumerate(top.iterrows(), 1):
@@ -97,37 +109,39 @@ def print_top_gaps(gap_df: pd.DataFrame, top_n: int, section_no: int = 3) -> Non
 
 
 def print_v3_comparison(comparison_df: pd.DataFrame, top_n: int, section_no: int = 4) -> None:
+    """Print rank comparison between ML gaps and v3b scoring."""
     print("=" * 60)
-    print(f"{section_no}. ML vs v3 ランキング比較 (Top {top_n})")
+    print(f"{section_no}. ML vs v3b Ranking Comparison (Top {top_n})")
     print("=" * 60)
 
     ml_top = comparison_df.nsmallest(top_n, "rank_ml")
     v3_top = comparison_df.nsmallest(top_n, "rank_v3")
     overlap = len(set(ml_top.index) & set(v3_top.index))
-    print(f"  Top {top_n} の重複: {overlap}/{top_n} ({overlap / top_n * 100:.0f}%)")
+    print(f"  Top {top_n} overlap: {overlap}/{top_n} ({overlap / top_n * 100:.0f}%)")
 
     corr = comparison_df["rank_ml"].corr(comparison_df["rank_v3"], method="spearman")
-    print(f"  順位相関 (spearman): {corr:.4f}")
+    print(f"  Rank correlation (spearman): {corr:.4f}")
     print()
 
     big_diff = ml_top[abs(ml_top["rank_diff"]) > 10].sort_values("rank_diff", ascending=False)
     if big_diff.empty:
-        print("  ML上位候補と v3 の順位差は概ね 10 位以内です。")
+        print("  ML top candidates and v3b ranks stay within about 10 positions.")
         print()
         return
 
-    print(f"  ML上位候補で v3 と 10 位超差があるもの: {len(big_diff)}件")
+    print(f"  ML top candidates with v3b rank difference > 10: {len(big_diff)}")
     for _, row in big_diff.head(5).iterrows():
         print(
             f"    {row.get('jis_mesh', row.get('jis_mesh3', ''))} x {row.get('unified_genre', ''):10s} | "
-            f"ML={int(row['rank_ml'])}位 v3={int(row['rank_v3'])}位 (差={int(row['rank_diff'])})"
+            f"ML={int(row['rank_ml'])} v3b={int(row['rank_v3'])} (diff={int(row['rank_diff'])})"
         )
     print()
 
 
 def print_shap_summary(shap_values: np.ndarray, features: pd.DataFrame, section_no: int = 5) -> None:
+    """Print mean absolute SHAP values."""
     print("=" * 60)
-    print(f"{section_no}. SHAP 特徴量寄与")
+    print(f"{section_no}. SHAP Summary")
     print("=" * 60)
     mean_abs_shap = np.abs(shap_values).mean(axis=0)
     shap_df = pd.DataFrame({"feature": features.columns, "mean_abs_shap": mean_abs_shap})
@@ -140,6 +154,7 @@ def print_shap_summary(shap_values: np.ndarray, features: pd.DataFrame, section_
 
 
 def main() -> int:
+    """Run model training CLI."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = parse_args()
 
@@ -155,7 +170,7 @@ def main() -> int:
             model_tag = args.tag
             df = load_integrated(args.tag)
 
-        logger.info("統合データ読み込み: %d rows", len(df))
+        logger.info("Loaded integrated data: %d rows", len(df))
         print()
 
         best_params: dict | None = None
@@ -176,18 +191,25 @@ def main() -> int:
             target_mode=target_mode,
         )
         print_cv_results(cv_results)
+
         if args.loao and args.combined and len(available_tags) >= 2:
-            loao_results = train_leave_one_area_out(available_tags, params=best_params, num_rounds=best_num_rounds or 300)
+            loao_results = train_leave_one_area_out(
+                available_tags,
+                params=best_params,
+                num_rounds=best_num_rounds or 300,
+            )
             print("=" * 60)
-            print("Leave-One-Area-Out CV 結果")
+            print("Leave-One-Area-Out CV Results")
             print("=" * 60)
-            for r in loao_results["area_results"]:
-                print(f"  {r['test_area']:10s}: RMSE={r['rmse']:.4f}, R2={r['r2']:.4f}")
-            print(f"  {'平均':10s}: RMSE={loao_results['avg_rmse']:.4f}, R2={loao_results['avg_r2']:.4f}")
+            for result in loao_results["area_results"]:
+                print(f"  {result['test_area']:10s}: RMSE={result['rmse']:.4f}, R2={result['r2']:.4f}")
+            print(f"  {'Average':10s}: RMSE={loao_results['avg_rmse']:.4f}, R2={loao_results['avg_r2']:.4f}")
             print()
+
         print_feature_importance(cv_results["feature_importance"], section_no=3 if args.tune else 2)
 
         gap_df = compute_market_gap(df, cv_results["oof_predictions"], target_mode=target_mode)
+        gap_df = compute_opportunity_score_v3b(gap_df)
         print_top_gaps(gap_df, args.top_n, section_no=4 if args.tune else 3)
 
         next_section = 5 if args.tune else 4
@@ -209,10 +231,10 @@ def main() -> int:
 
         output_path = settings.PROCESSED_DATA_DIR / f"{model_tag}_ml_gap.csv"
         gap_df.to_csv(output_path, index=False, encoding="utf-8-sig")
-        logger.info("MLギャップ結果を保存: %s", output_path)
+        logger.info("Saved ML gap results: %s", output_path)
         return 0
     except Exception:
-        logger.exception("モデル学習に失敗しました")
+        logger.exception("Model training failed")
         return 1
 
 

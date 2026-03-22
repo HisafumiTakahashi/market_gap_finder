@@ -27,7 +27,7 @@ def ml_df() -> pd.DataFrame:
             "google_total_reviews": [20, 0, 10, 5, 0, 30],
             "reviews_per_shop": [20, 0, 10, 5, 0, 30],
             "google_density": [0.8, 0.9, 1.1, 1.2, 1.4, 1.5],
-            "unified_genre": ["cafe", "ramen", "cafe", "izakaya", "sushi", "cafe"],
+            "unified_genre": ["cafe", "ramen", "cafe", "izakaya", "washoku", "cafe"],
             "restaurant_count": [2, 3, 4, 5, 6, 7],
             "opportunity_score": [0.2, 0.5, 0.4, 0.7, 0.6, 0.9],
         }

@@ -16,11 +16,14 @@ from sklearn.metrics import r2_score, root_mean_squared_error
 from sklearn.model_selection import GroupKFold, KFold
 
 from config import settings
+from src.analyze.utils import mesh_col as _mesh_col
 
 logger = logging.getLogger(__name__)
 
 DEMAND_FEATURES = [
     "population",
+    "pop_working",
+    "households",
     "neighbor_avg_population",
     "nearest_station_passengers",
     "land_price",
@@ -28,6 +31,16 @@ DEMAND_FEATURES = [
 ]
 NUMERIC_FEATURES = [
     "population",
+    "pop_working",
+    "pop_adult",
+    "pop_elderly",
+    "households",
+    "single_households",
+    "young_single",
+    "working_ratio",
+    "elderly_ratio",
+    "single_ratio",
+    "young_single_ratio",
     "genre_diversity",
     "genre_hhi",
     "other_genre_count",
@@ -44,16 +57,6 @@ NUMERIC_FEATURES = [
 LOG_TRANSFORM_FEATURES = {"other_genre_count", "neighbor_avg_restaurants", "google_total_reviews"}
 CATEGORICAL_FEATURE = "unified_genre"
 TARGET_COL = "restaurant_count"
-
-
-def _mesh_col(df: pd.DataFrame) -> str:
-    """Prefer jis_mesh and fall back to legacy mesh column names."""
-    if "jis_mesh" in df.columns:
-        return "jis_mesh"
-    if "jis_mesh3" in df.columns:
-        return "jis_mesh3"
-    return "jis_mesh"
-
 DEFAULT_PARAMS = {
     "objective": "regression",
     "metric": "rmse",
@@ -125,7 +128,8 @@ def train_cv(
     params: dict | None = None,
     num_rounds: int = DEFAULT_NUM_ROUNDS,
     group_col: str = "jis_mesh",
-    filter_outliers: bool = True,
+    # Optuna検証: フィルタなしが R2 最良 (0.8028)。閾値 pop<4000&rc>200 は実質0件除外
+    filter_outliers: bool = False,
     target_mode: str = "raw",
 ) -> dict:
     """Train with cross validation, using grouped folds when available."""

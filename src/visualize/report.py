@@ -11,16 +11,9 @@ import pandas as pd
 from jinja2 import Template
 
 from config import settings
+from src.analyze.utils import mesh_col as _mesh_col
 
 logger = logging.getLogger(__name__)
-
-
-def _mesh_col(df: pd.DataFrame) -> str:
-    if "jis_mesh" in df.columns:
-        return "jis_mesh"
-    if "jis_mesh3" in df.columns:
-        return "jis_mesh3"
-    return "mesh_code"
 
 
 def generate_explanation(row: pd.Series) -> str:

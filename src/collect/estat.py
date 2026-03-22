@@ -23,6 +23,46 @@ from config.settings import ESTAT_API_BASE_URL, ESTAT_API_KEY
 
 logger = logging.getLogger(__name__)
 
+POPULATION_CAT01_CODES = {
+    "0010": "population",
+    "0100": "pop_working",
+    "0160": "pop_adult",
+    "0190": "pop_elderly",
+    "0340": "households",
+    "0360": "single_households",
+    "0480": "young_single",
+}
+
+POPULATION_CAT01_ALIASES = {
+    # 半角表記 (旧データ / 手動入力向け)
+    "総人口": "0010",
+    "人口総数": "0010",
+    "15～64歳人口": "0100",
+    "15〜64歳人口": "0100",
+    "20歳以上人口": "0160",
+    "65歳以上人口": "0190",
+    "世帯総数": "0340",
+    "1人世帯数": "0360",
+    "20-29歳1人世帯数": "0480",
+}
+
+# e-Stat CLASS_INF の日本語名 → コードへの正規化用パターン (部分一致)
+_CAT01_PATTERN_TO_CODE = [
+    ("人口（総数）", "0010"),
+    ("１５～６４歳人口", "0100"),
+    ("15～64歳人口", "0100"),
+    ("２０歳以上人口", "0160"),
+    ("20歳以上人口", "0160"),
+    ("６５歳以上人口", "0190"),
+    ("65歳以上人口", "0190"),
+    ("世帯総数", "0340"),
+    # 0480 は「１人世帯数」を含むため 0360 より先にマッチさせる
+    ("２０～２９歳", "0480"),
+    ("20-29歳", "0480"),
+    ("１人世帯数", "0360"),
+    ("1人世帯数", "0360"),
+]
+
 
 def _as_list(value: Any) -> list[Any]:
     """値をリストとして扱える形に正規化する。"""
@@ -156,7 +196,12 @@ def get_stats_list(search_word: str, limit: int = 10) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
-def get_stats_data(stats_data_id: str, cd_area: str | None = None, limit: int = 100000) -> pd.DataFrame:
+def get_stats_data(
+    stats_data_id: str,
+    cd_area: str | None = None,
+    cd_cat01: str | None = None,
+    limit: int = 100000,
+) -> pd.DataFrame:
     """統計データを取得する。
 
     Parameters
@@ -165,6 +210,8 @@ def get_stats_data(stats_data_id: str, cd_area: str | None = None, limit: int = 
         取得対象の統計データ ID
     cd_area : str | None, optional
         地域コード。指定時は対象地域で絞り込む
+    cd_cat01 : str | None, optional
+        cat01コードフィルタ。カンマ区切りで複数指定可（例: "0010,0100,0190"）
     limit : int, optional
         取得件数の上限, デフォルト 100000
 
@@ -177,36 +224,57 @@ def get_stats_data(stats_data_id: str, cd_area: str | None = None, limit: int = 
         logger.error("ESTAT_API_KEY が設定されていません")
         return pd.DataFrame()
 
-    params: dict[str, Any] = {
+    page_size = max(1, int(limit))
+    base_params: dict[str, Any] = {
         "appId": ESTAT_API_KEY,
         "statsDataId": stats_data_id,
-        "limit": max(1, int(limit)),
+        "limit": page_size,
     }
     if cd_area:
-        params["cdArea"] = cd_area
+        base_params["cdArea"] = cd_area
+    if cd_cat01:
+        base_params["cdCat01"] = cd_cat01
 
-    try:
-        response = requests.get(
-            f"{ESTAT_API_BASE_URL}/json/getStatsData",
-            params=params,
-            timeout=60,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except Exception as e:
-        logger.error("e-Stat getStatsData リクエスト失敗: %s", e)
+    all_rows: list[dict[str, Any]] = []
+    class_maps: dict[str, dict[str, str]] = {}
+    start_position = 1
+
+    while True:
+        params = {**base_params, "startPosition": start_position}
+        try:
+            response = requests.get(
+                f"{ESTAT_API_BASE_URL}/json/getStatsData",
+                params=params,
+                timeout=60,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as e:
+            logger.warning("e-Stat paging incomplete: fetched %d rows before error", len(all_rows))
+            logger.error("e-Stat getStatsData リクエスト失敗: %s", e)
+            break
+
+        stats_data = _extract_stats_data_payload(payload)
+        if not class_maps:
+            class_maps = _build_class_maps(stats_data.get("CLASS_INF", {}))
+
+        data_inf = stats_data.get("DATA_INF", {})
+        values = _as_list(data_inf.get("VALUE"))
+        page_rows = [v for v in values if isinstance(v, dict)]
+        if not page_rows:
+            break
+
+        all_rows.extend(page_rows)
+        logger.info("e-Stat paging: fetched %d rows (total %d)", len(page_rows), len(all_rows))
+
+        if len(page_rows) < page_size:
+            break
+        start_position += len(page_rows)
+
+    if not all_rows:
         return pd.DataFrame()
 
-    stats_data = _extract_stats_data_payload(payload)
-    class_maps = _build_class_maps(stats_data.get("CLASS_INF", {}))
-
-    data_inf = stats_data.get("DATA_INF", {})
-    values = _as_list(data_inf.get("VALUE"))
-    rows = [value for value in values if isinstance(value, dict)]
-    if not rows:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(all_rows)
     if "$" in df.columns and "value" not in df.columns:
         df = df.rename(columns={"$": "value"})
 
@@ -318,7 +386,8 @@ def fetch_mesh_population(
             logger.error("statsDataId が見つかりません: mesh1=%s", mesh_code)
             continue
 
-        df = get_stats_data(stats_data_id=sid)
+        cat01_filter = ",".join(POPULATION_CAT01_CODES)
+        df = get_stats_data(stats_data_id=sid, cd_cat01=cat01_filter)
         if df.empty:
             logger.error("メッシュ人口の取得に失敗しました: mesh_code=%s, statsDataId=%s", mesh_code, sid)
             continue
@@ -339,12 +408,29 @@ def fetch_mesh_population(
         if "mesh_code" not in renamed.columns:
             renamed["mesh_code"] = mesh_code
 
-        # cat01=0010 (人口総数) のみ抽出
         if "cat01" in renamed.columns:
-            cat01_col = renamed["cat01"].astype(str)
-            total_mask = cat01_col.isin(["0010"]) | cat01_col.str.contains("人口（総数）|人口総数", na=False)
-            if total_mask.any():
-                renamed = renamed.loc[total_mask].copy()
+            cat01_col = renamed["cat01"].astype(str).str.strip()
+            # コードそのまま or 日本語名の部分一致でフィルタ
+            pattern = "|".join(p for p, _ in _CAT01_PATTERN_TO_CODE)
+            valid_mask = cat01_col.isin(POPULATION_CAT01_CODES) | cat01_col.str.contains(
+                pattern, na=False,
+            )
+            if valid_mask.any():
+                renamed = renamed.loc[valid_mask].copy()
+
+            # 日本語名 → コードに正規化
+            def _normalize_cat01(val: str) -> str:
+                val = val.strip()
+                if val in POPULATION_CAT01_CODES:
+                    return val
+                if val in POPULATION_CAT01_ALIASES:
+                    return POPULATION_CAT01_ALIASES[val]
+                for pattern_str, code in _CAT01_PATTERN_TO_CODE:
+                    if pattern_str in val:
+                        return code
+                return val
+
+            renamed["cat01"] = renamed["cat01"].astype(str).map(_normalize_cat01)
 
         # 秘匿データ除外 (cat02=1: 無し のみ)
         if "cat02" in renamed.columns:

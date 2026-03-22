@@ -6,20 +6,11 @@ import logging
 
 import pandas as pd
 
+from src.analyze.constants import _COMPETITOR_OFFSET, _POP_UNIT  # noqa: F401 - re-export
+from src.analyze.utils import mesh_col as _mesh_col
 from config.settings import WEIGHT_COMPETITOR, WEIGHT_DEMAND, WEIGHT_LAND_PRICE, WEIGHT_POPULATION
 
 logger = logging.getLogger(__name__)
-
-_COMPETITOR_OFFSET = 0.1
-
-
-def _mesh_col(df: pd.DataFrame) -> str:
-    """Prefer jis_mesh and fall back to legacy mesh columns."""
-    if "jis_mesh" in df.columns:
-        return "jis_mesh"
-    if "jis_mesh3" in df.columns:
-        return "jis_mesh3"
-    return "mesh_code"
 
 
 def _normalize(series: pd.Series) -> pd.Series:
@@ -186,7 +177,7 @@ def compute_opportunity_score_v2(df: pd.DataFrame) -> pd.DataFrame:
 
     if "population" in out.columns:
         population = pd.to_numeric(out["population"], errors="coerce").fillna(0.0)
-        competitor_density = restaurant_count / (population / 10000.0 + _COMPETITOR_OFFSET)
+        competitor_density = restaurant_count / (population / _POP_UNIT + _COMPETITOR_OFFSET)
         population_signal = _normalize(population)
     else:
         competitor_density = restaurant_count
@@ -225,7 +216,7 @@ def compute_opportunity_score_v3(df: pd.DataFrame) -> pd.DataFrame:
     restaurant_count = pd.to_numeric(out["restaurant_count"], errors="coerce").fillna(0.0)
     if "population" in out.columns:
         population = pd.to_numeric(out["population"], errors="coerce").fillna(0.0)
-        competitor_density = restaurant_count / (population / 10000.0 + _COMPETITOR_OFFSET)
+        competitor_density = restaurant_count / (population / _POP_UNIT + _COMPETITOR_OFFSET)
         population_signal = _normalize(population)
     else:
         competitor_density = restaurant_count

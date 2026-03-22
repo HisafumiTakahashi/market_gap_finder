@@ -11,8 +11,18 @@ import pandas as pd
 
 from config import settings
 from src.analyze.features import add_all_features
-from src.analyze.scoring import compute_opportunity_score_v3, generate_reason, run_scoring_v3
-from src.collect.estat import fetch_mesh_population, save_raw
+from src.analyze.constants import _COMPETITOR_OFFSET, _POP_UNIT
+from src.analyze.scoring import (
+    compute_opportunity_score_v3,
+    generate_reason,
+    run_scoring_v3,
+)
+from src.collect.estat import (
+    POPULATION_CAT01_ALIASES,
+    POPULATION_CAT01_CODES as POPULATION_METRICS,
+    fetch_mesh_population,
+    save_raw,
+)
 from src.collect.land_price import load_land_price_cache
 from src.collect.station import load_station_cache
 from src.collect.station_passengers import load_passenger_cache
@@ -84,48 +94,61 @@ def aggregate_hotpepper_by_mesh(df: pd.DataFrame) -> pd.DataFrame:
     return aggregated
 
 
-def normalize_population_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize e-Stat population data to quarter-mesh totals.
-
-    e-Stat の4分の1メッシュデータに欠損がある場合（無人メッシュは秘匿で省略される）、
-    親3次メッシュの人口合計から既知の子メッシュ人口を差し引いた残りを
-    欠損子メッシュに均等按分するフォールバックを実行する。
-    """
+def normalize_population_df(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Normalize e-Stat population and household data to quarter-mesh totals."""
+    base_columns = ["jis_mesh", *POPULATION_METRICS.values()]
     if df.empty:
-        return pd.DataFrame(columns=["jis_mesh", "population"])
+        return pd.DataFrame(columns=base_columns), {}
 
     normalized = df.copy()
     if "mesh_code" not in normalized.columns:
         raise KeyError("mesh_code column is required in e-Stat data")
 
     normalized["jis_mesh"] = normalized["mesh_code"].astype(str).str.extract(r"(\d{8,10})", expand=False)
-    normalized["population"] = (
-        normalized["population"].astype(str).str.replace(",", "", regex=False).pipe(pd.to_numeric, errors="coerce")
+    value_col = "population" if "population" in normalized.columns else "value"
+    if value_col not in normalized.columns:
+        return pd.DataFrame(columns=base_columns), {}
+
+    normalized[value_col] = (
+        normalized[value_col].astype(str).str.replace(",", "", regex=False).pipe(pd.to_numeric, errors="coerce")
     )
 
-    if "cat01" in normalized.columns:
-        cat01_str = normalized["cat01"].astype(str)
-        total_mask = cat01_str.isin(["0010"]) | cat01_str.str.contains("人口|総数|男女", na=False)
-        if total_mask.any():
-            normalized = normalized.loc[total_mask].copy()
+    if "cat01" not in normalized.columns:
+        normalized["cat01"] = "0010"
 
-    normalized = normalized.dropna(subset=["jis_mesh", "population"])
+    normalized["cat01"] = normalized["cat01"].astype(str).replace(POPULATION_CAT01_ALIASES)
+    normalized = normalized.loc[normalized["cat01"].isin(POPULATION_METRICS)].copy()
+    normalized = normalized.dropna(subset=["jis_mesh", value_col])
     if normalized.empty:
-        return pd.DataFrame(columns=["jis_mesh", "population"])
+        return pd.DataFrame(columns=base_columns), {}
 
-    # 10桁メッシュの集計
     quarter = normalized[normalized["jis_mesh"].astype(str).str.len() == 10].copy()
+    if quarter.empty:
+        return pd.DataFrame(columns=base_columns), {}
+
+    quarter = quarter.assign(metric=quarter["cat01"].map(POPULATION_METRICS), metric_value=quarter[value_col])
     quarter_pop = (
-        quarter.groupby("jis_mesh", as_index=False)
-        .agg(population=("population", "sum"))
+        quarter.pivot_table(
+            index="jis_mesh",
+            columns="metric",
+            values="metric_value",
+            aggfunc="sum",
+        )
+        .reset_index()
     )
 
-    # 親3次メッシュ別の平均人口を計算 — フォールバック按分用
+    for column in POPULATION_METRICS.values():
+        if column not in quarter_pop.columns:
+            quarter_pop[column] = pd.NA
+
+    fallback_by_metric: dict[str, dict[str, float]] = {}
     quarter_pop["_mesh3"] = quarter_pop["jis_mesh"].astype(str).str[:8]
-    mesh3_avg = quarter_pop.groupby("_mesh3")["population"].mean().to_dict()
+    for column in POPULATION_METRICS.values():
+        quarter_pop[column] = pd.to_numeric(quarter_pop[column], errors="coerce")
+        fallback_by_metric[column] = quarter_pop.groupby("_mesh3")[column].mean().to_dict()
     quarter_pop = quarter_pop.drop(columns=["_mesh3"])
 
-    return quarter_pop.sort_values("jis_mesh").reset_index(drop=True), mesh3_avg
+    return quarter_pop[base_columns].sort_values("jis_mesh").reset_index(drop=True), fallback_by_metric
 
 
 def load_or_fetch_population(tag: str, mesh1_codes: list[str], skip_fetch: bool) -> pd.DataFrame:
@@ -137,7 +160,7 @@ def load_or_fetch_population(tag: str, mesh1_codes: list[str], skip_fetch: bool)
         if not cache_path.exists():
             raise FileNotFoundError(cache_path)
         logger.info("Loading cached e-Stat population data: %s", cache_path)
-        return pd.read_csv(cache_path)
+        return pd.read_csv(cache_path, dtype={"cat01": str, "mesh_code": str})
 
     logger.info("Fetching e-Stat population data for %d mesh1 codes", len(mesh1_codes))
     population_df = fetch_mesh_population(mesh1_codes=mesh1_codes)
@@ -174,7 +197,7 @@ def _merge_google_ratings(integrated_df: pd.DataFrame, google_df: pd.DataFrame |
         mesh_gp_count = gdf.groupby("jis_mesh").size().rename("google_place_count")
         out = out.merge(mesh_gp_count, on="jis_mesh", how="left")
         out["google_place_count"] = out["google_place_count"].fillna(0).astype(int)
-        out["google_density"] = out["google_place_count"] / (population / 10000 + 0.1)
+        out["google_density"] = out["google_place_count"] / (population / _POP_UNIT + _COMPETITOR_OFFSET)
         out["google_density"] = out["google_density"].fillna(0.0)
     else:
         out["google_density"] = 0.0
@@ -222,17 +245,29 @@ def main() -> int:
         logger.info("Normalized population mesh rows: %d", len(population_df))
 
         integrated_df = mesh_agg_df.merge(population_df, on="jis_mesh", how="left")
-        integrated_df["population"] = pd.to_numeric(integrated_df["population"], errors="coerce").fillna(0.0)
+        for column in POPULATION_METRICS.values():
+            if column not in integrated_df.columns:
+                integrated_df[column] = pd.NA
+            integrated_df[column] = pd.to_numeric(integrated_df[column], errors="coerce")
 
-        # フォールバック: e-Statに4分の1メッシュが無い場合、親メッシュの子平均人口で補完
         if fallback_residuals:
-            missing_mask = integrated_df["population"] == 0.0
-            if missing_mask.any():
-                missing_mesh3 = integrated_df.loc[missing_mask, "jis_mesh"].astype(str).str[:8]
-                fallback_pop = missing_mesh3.map(fallback_residuals).fillna(0.0)
-                integrated_df.loc[missing_mask, "population"] = fallback_pop.values
-                filled = int(missing_mask.sum() - (integrated_df["population"] == 0.0).sum())
-                logger.info("Fallback population fill: %d/%d rows filled from parent mesh averages", filled, int(missing_mask.sum()))
+            mesh3_codes = integrated_df["jis_mesh"].astype(str).str[:8]
+            total_filled = 0
+            total_missing = 0
+            for column in POPULATION_METRICS.values():
+                missing_mask = integrated_df[column].isna()
+                total_missing += int(missing_mask.sum())
+                if not missing_mask.any():
+                    continue
+                fallback_map = fallback_residuals.get(column, {})
+                fallback_values = mesh3_codes.loc[missing_mask].map(fallback_map)
+                integrated_df.loc[missing_mask, column] = fallback_values.values
+                total_filled += int(fallback_values.notna().sum())
+            logger.info(
+                "Fallback demographic fill: %d/%d metric cells filled from parent mesh averages",
+                total_filled,
+                total_missing,
+            )
 
         logger.info("Adding station, passenger, and land-price features")
         station_df = load_station_cache(args.tag)

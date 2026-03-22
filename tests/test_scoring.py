@@ -31,7 +31,7 @@ def base_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "mesh_code": ["m001", "m002", "m003", "m004"],
-            "unified_genre": ["cafe", "izakaya", "ramen", "sushi"],
+            "unified_genre": ["cafe", "izakaya", "ramen", "washoku"],
             "restaurant_count": [10, 30, 5, 50],
             "lat": [35.66, 35.69, 35.73, 35.67],
             "lng": [139.70, 139.71, 139.72, 139.76],
@@ -45,7 +45,7 @@ def base_df_v2() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "mesh_code": ["m001", "m002", "m003", "m004"],
-            "unified_genre": ["cafe", "izakaya", "ramen", "sushi"],
+            "unified_genre": ["cafe", "izakaya", "ramen", "washoku"],
             "restaurant_count": [10, 30, 5, 50],
             "population": [50000, 80000, 30000, 20000],
             "lat": [35.66, 35.69, 35.73, 35.67],

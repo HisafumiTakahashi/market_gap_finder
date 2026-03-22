@@ -4,20 +4,14 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 import pandas as pd
 
+from src.analyze.constants import _COMPETITOR_OFFSET, _POP_UNIT
+from src.analyze.utils import mesh_col as _mesh_col
 from src.preprocess.mesh_converter import lat_lon_to_mesh_quarter
 
 logger = logging.getLogger(__name__)
-
-
-def _mesh_col(df: pd.DataFrame) -> str:
-    """DataFrameからメッシュカラム名を検出する。"""
-    if "jis_mesh" in df.columns:
-        return "jis_mesh"
-    if "jis_mesh3" in df.columns:
-        return "jis_mesh3"
-    return "jis_mesh"
 
 
 def _shift_mesh3(mesh3: str, lat_steps: int, lon_steps: int) -> str | None:
@@ -181,6 +175,7 @@ def add_genre_hhi(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     rc = pd.to_numeric(out["restaurant_count"], errors="coerce").fillna(0)
     mesh_total = rc.groupby(out[mesh_col]).transform("sum")
+    # replace 0 with 1 BEFORE division to avoid inf (0 total -> share=0)
     share = rc / mesh_total.replace(0, 1)
     share_sq = share**2
     mesh_hhi_sum = share_sq.groupby(out[mesh_col]).transform("sum")
@@ -264,6 +259,55 @@ def add_neighbor_population(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def add_demographic_ratios(df: pd.DataFrame) -> pd.DataFrame:
+    """Add population and household ratio features with safe zero fallbacks."""
+    out = df.copy()
+    metric_defaults = {
+        "population": 0.0,
+        "pop_working": 0.0,
+        "pop_adult": 0.0,
+        "pop_elderly": 0.0,
+        "households": 0.0,
+        "single_households": 0.0,
+        "young_single": 0.0,
+    }
+    for column, default in metric_defaults.items():
+        if column not in out.columns:
+            out[column] = default
+        out[column] = pd.to_numeric(out[column], errors="coerce").fillna(default)
+
+    out["working_ratio"] = out["pop_working"] / (out["population"] + 1.0)
+    out["elderly_ratio"] = out["pop_elderly"] / (out["population"] + 1.0)
+    out["single_ratio"] = out["single_households"] / (out["households"] + 1.0)
+    out["young_single_ratio"] = out["young_single"] / (out["households"] + 1.0)
+    return out
+
+
+def add_neighbor_avg_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Add average neighboring opportunity score when available."""
+    mesh_col = _mesh_col(df)
+    out = df.copy()
+    if out.empty or mesh_col not in out.columns:
+        out["neighbor_avg_score"] = 0.0
+        return out
+    if "opportunity_score" not in out.columns:
+        out["neighbor_avg_score"] = 0.0
+        return out
+
+    mesh_score = pd.to_numeric(out.groupby(mesh_col)["opportunity_score"].first(), errors="coerce").fillna(0.0).to_dict()
+
+    def _calc_neighbor_avg(mesh_code: str) -> float:
+        neighbors = _neighbor_mesh_codes(mesh_code)
+        if not neighbors:
+            return 0.0
+        scores = [mesh_score.get(n, 0.0) for n in neighbors]
+        return float(sum(scores) / len(scores))
+
+    neighbor_map = {mesh: _calc_neighbor_avg(mesh) for mesh in out[mesh_col].dropna().unique()}
+    out["neighbor_avg_score"] = out[mesh_col].map(neighbor_map).fillna(0.0)
+    return out
+
+
 def add_saturation_index(df: pd.DataFrame) -> pd.DataFrame:
     """Add restaurants-per-population saturation index by mesh (LOO)."""
     mesh_col = _mesh_col(df)
@@ -280,7 +324,7 @@ def add_saturation_index(df: pd.DataFrame) -> pd.DataFrame:
         .fillna(0)
         .clip(lower=0)
     )
-    out["saturation_index"] = other_total / (pop / 10000 + 0.1)
+    out["saturation_index"] = other_total / (pop / _POP_UNIT + _COMPETITOR_OFFSET)
     return out
 
 
@@ -294,12 +338,14 @@ def add_genre_saturation(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     population = pd.to_numeric(out["population"], errors="coerce").fillna(0).clip(lower=0)
     restaurant_count = pd.to_numeric(out["restaurant_count"], errors="coerce").fillna(0)
-    out["genre_saturation"] = restaurant_count / (population / 10000 + 0.1)
+    out["genre_saturation"] = restaurant_count / (population / _POP_UNIT + _COMPETITOR_OFFSET)
     return out
 
 
 def add_nearest_station(df: pd.DataFrame, station_df: pd.DataFrame) -> pd.DataFrame:
     """Add nearest station distance and name for each row."""
+    from scipy.spatial import cKDTree
+
     from src.collect.station import haversine_km
 
     if df.empty or station_df is None or station_df.empty:
@@ -308,32 +354,39 @@ def add_nearest_station(df: pd.DataFrame, station_df: pd.DataFrame) -> pd.DataFr
         out["nearest_station_name"] = ""
         return out
 
-    station_lats = station_df["lat"].values
-    station_lngs = station_df["lng"].values
-    station_names = station_df["station_name"].values
-
-    distances: list[float] = []
-    names: list[str] = []
-    for _, row in df.iterrows():
-        lat = float(row.get("lat", 0))
-        lng = float(row.get("lng", 0))
-        if lat == 0 or lng == 0:
-            distances.append(0.0)
-            names.append("")
-            continue
-
-        min_dist = float("inf")
-        min_name = ""
-        for s_lat, s_lng, s_name in zip(station_lats, station_lngs, station_names):
-            distance = haversine_km(lat, lng, float(s_lat), float(s_lng))
-            if distance < min_dist:
-                min_dist = distance
-                min_name = str(s_name)
-
-        distances.append(min_dist)
-        names.append(min_name)
-
     out = df.copy()
+    lats = pd.to_numeric(out["lat"], errors="coerce").fillna(0).values
+    lngs = pd.to_numeric(out["lng"], errors="coerce").fillna(0).values
+    valid = (lats != 0) & (lngs != 0)
+
+    station_lats = pd.to_numeric(station_df["lat"], errors="coerce").values
+    station_lngs = pd.to_numeric(station_df["lng"], errors="coerce").values
+    station_names = station_df["station_name"].values
+    station_valid = ~(pd.isna(station_lats) | pd.isna(station_lngs))
+    if not station_valid.any():
+        out["nearest_station_distance"] = 0.0
+        out["nearest_station_name"] = ""
+        return out
+
+    station_lats = station_lats[station_valid]
+    station_lngs = station_lngs[station_valid]
+    station_names = station_names[station_valid]
+
+    tree = cKDTree(np.column_stack([station_lats, station_lngs]))
+
+    distances = np.zeros(len(out))
+    names = [""] * len(out)
+
+    if valid.any():
+        query_points = np.column_stack([lats[valid], lngs[valid]])
+        _, indices = tree.query(query_points, k=1)
+        for idx, orig_idx in zip(np.atleast_1d(indices), np.where(valid)[0]):
+            station_idx = int(idx)
+            distances[orig_idx] = haversine_km(
+                lats[orig_idx], lngs[orig_idx], station_lats[station_idx], station_lngs[station_idx]
+            )
+            names[orig_idx] = str(station_names[station_idx])
+
     out["nearest_station_distance"] = distances
     out["nearest_station_name"] = names
     return out
@@ -341,7 +394,7 @@ def add_nearest_station(df: pd.DataFrame, station_df: pd.DataFrame) -> pd.DataFr
 
 def add_nearest_station_passengers(df: pd.DataFrame, passenger_df: pd.DataFrame) -> pd.DataFrame:
     """Add nearest station passenger volume."""
-    from src.collect.station import haversine_km
+    from scipy.spatial import cKDTree
 
     out = df.copy()
     if out.empty or passenger_df is None or passenger_df.empty:
@@ -358,29 +411,30 @@ def add_nearest_station_passengers(df: pd.DataFrame, passenger_df: pd.DataFrame)
             out["nearest_station_passengers"] = matched.fillna(0.0)
             return out
 
+    lats = pd.to_numeric(out.get("lat"), errors="coerce").fillna(0).values
+    lngs = pd.to_numeric(out.get("lng"), errors="coerce").fillna(0).values
+    valid = (lats != 0) & (lngs != 0)
+
     passenger_lats = pd.to_numeric(passenger_work["lat"], errors="coerce").values
     passenger_lngs = pd.to_numeric(passenger_work["lng"], errors="coerce").values
     passenger_counts = passenger_work["passengers"].values
+    station_valid = ~(pd.isna(passenger_lats) | pd.isna(passenger_lngs))
+    if not station_valid.any():
+        out["nearest_station_passengers"] = 0.0
+        return out
 
-    values: list[float] = []
-    for _, row in out.iterrows():
-        lat = float(row.get("lat", 0))
-        lng = float(row.get("lng", 0))
-        if lat == 0 or lng == 0:
-            values.append(0.0)
-            continue
+    passenger_lats = passenger_lats[station_valid]
+    passenger_lngs = passenger_lngs[station_valid]
+    passenger_counts = passenger_counts[station_valid]
 
-        min_dist = float("inf")
-        nearest_passengers = 0.0
-        for s_lat, s_lng, s_passengers in zip(passenger_lats, passenger_lngs, passenger_counts):
-            if pd.isna(s_lat) or pd.isna(s_lng):
-                continue
-            distance = haversine_km(lat, lng, float(s_lat), float(s_lng))
-            if distance < min_dist:
-                min_dist = distance
-                nearest_passengers = float(s_passengers)
+    tree = cKDTree(np.column_stack([passenger_lats, passenger_lngs]))
+    values = np.zeros(len(out))
 
-        values.append(nearest_passengers)
+    if valid.any():
+        query_points = np.column_stack([lats[valid], lngs[valid]])
+        _, indices = tree.query(query_points, k=1)
+        for idx, orig_idx in zip(np.atleast_1d(indices), np.where(valid)[0]):
+            values[orig_idx] = float(passenger_counts[int(idx)])
 
     out["nearest_station_passengers"] = values
     return out
@@ -423,6 +477,7 @@ def add_all_features(
     out = add_genre_share(out)
     out = add_neighbor_competition(out)
     out = add_neighbor_population(out)
+    out = add_demographic_ratios(out)
     out = add_saturation_index(out)
     out = add_genre_saturation(out)
     if station_df is not None and not station_df.empty:

@@ -19,12 +19,12 @@ logger = logging.getLogger(__name__)
 
 GENRE_MAPPING: dict[str, tuple[str, ...]] = {
     "izakaya": ("居酒屋",),
-    "italian": ("イタリアン", "フレンチ"),
+    "italian": ("イタリアン", "フレンチ"),  # HotPepper では「イタリアン・フレンチ」で1ジャンル
     "chinese": ("中華",),
     "yakiniku": ("焼肉", "韓国"),
     "cafe": ("カフェ",),
     "ramen": ("ラーメン",),
-    "sushi": ("寿司", "和食"),
+    "washoku": ("和食",),  # HotPepper に「寿司」単独ジャンルなし、和食に統合
     "curry": ("カレー",),
 }
 

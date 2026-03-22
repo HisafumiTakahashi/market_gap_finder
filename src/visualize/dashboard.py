@@ -12,6 +12,7 @@ from folium.plugins import HeatMap
 
 from config import settings
 from src.analyze.features import add_all_features
+from src.analyze.utils import mesh_col as _mesh_col
 from src.analyze.scoring import (
     compute_opportunity_score,
     compute_opportunity_score_v2,
@@ -24,14 +25,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_CENTER_LAT = 35.6812
 DEFAULT_CENTER_LNG = 139.7671
 DEFAULT_ZOOM_START = 12
-
-
-def _mesh_col(df: pd.DataFrame) -> str:
-    if "jis_mesh" in df.columns:
-        return "jis_mesh"
-    if "jis_mesh3" in df.columns:
-        return "jis_mesh3"
-    return "mesh_code"
 
 
 def _coerce_map_frame(df: pd.DataFrame) -> pd.DataFrame:

@@ -16,6 +16,7 @@ from src.analyze.features import (
     add_other_genre_count,
     add_saturation_index,
 )
+from src.analyze.constants import _COMPETITOR_OFFSET, _POP_UNIT
 
 
 @pytest.fixture()
@@ -136,7 +137,7 @@ class TestAddSaturationIndex:
 
     def test_uses_leave_one_out_restaurant_count(self, sample_df: pd.DataFrame) -> None:
         result = add_saturation_index(sample_df)
-        expected = 5 / (50000 / 10000 + 0.1)
+        expected = 5 / (50000 / _POP_UNIT + _COMPETITOR_OFFSET)
         assert result.loc[0, "saturation_index"] == pytest.approx(expected)
 
 
@@ -147,7 +148,7 @@ class TestAddGenreSaturation:
 
     def test_uses_row_level_restaurant_count_and_population(self, sample_df: pd.DataFrame) -> None:
         result = add_genre_saturation(sample_df)
-        expected = 10 / (50000 / 10000 + 0.1)
+        expected = 10 / (50000 / _POP_UNIT + _COMPETITOR_OFFSET)
         assert result.loc[0, "genre_saturation"] == pytest.approx(expected)
 
 
@@ -164,7 +165,7 @@ class TestAddNeighborPopulation:
         df = pd.DataFrame(
             {
                 "jis_mesh": ["5339358611", "5339358612", "5339358613"],
-                "unified_genre": ["cafe", "ramen", "sushi"],
+                "unified_genre": ["cafe", "ramen", "washoku"],
                 "restaurant_count": [2, 3, 4],
                 "population": [1000, 2000, 3000],
             }

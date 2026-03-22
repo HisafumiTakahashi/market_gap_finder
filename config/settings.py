@@ -71,14 +71,14 @@ TARGET_GENRES: list[str] = [
 MESH_LAT_STEP: float = 0.005   # 約 500 m
 MESH_LON_STEP: float = 0.00625  # 約 500 m
 
-# 機会スコアの重み（各因子の線形乗数として適用）
-# opportunity_score_raw = w_demand * demand_score / (competitor_density + 0.01)
-#                       * w_population * population_density_norm
-#                       * w_land_price * (1 / (land_price_norm + ε))
-WEIGHT_DEMAND: float = 1.0       # 需要スコアの重み
-WEIGHT_COMPETITOR: float = 1.0   # 競合密度の重み（除算側に乗算）
-WEIGHT_POPULATION: float = 1.0   # 人口密度の重み
-WEIGHT_LAND_PRICE: float = 1.0   # 地価逆数の重み
+# 機会スコア v3 の重み（Optuna 100trial で最適化）
+# 最適化目標: v3スコアとMLギャップ(予測-実測)のSpearman相関を最大化
+# 結果: Spearman 0.084 → 0.172 (デフォルト1.0比 +105%)
+# 競合密度の重みが最大 — 供給過多エリアの減点が最も重要
+WEIGHT_DEMAND: float = 0.17       # 需要スコアの重み（人口ベース需要シグナル）
+WEIGHT_COMPETITOR: float = 2.76   # 競合密度の重み（除算側に乗算、供給過多ペナルティ）
+WEIGHT_POPULATION: float = 0.18   # 人口密度の重み（需要と高相関のため低く抑制）
+WEIGHT_LAND_PRICE: float = 1.65   # 地価逆数の重み（低地価＝参入コスト低のボーナス）
  
 # ──────────────────────────────────────
 # 外部データディレクトリ

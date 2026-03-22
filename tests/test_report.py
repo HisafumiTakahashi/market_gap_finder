@@ -41,7 +41,7 @@ class TestGenerateExplanation:
                 {
                     "population": 30000,
                     "restaurant_count": 2,
-                    "unified_genre": "sushi",
+                    "unified_genre": "washoku",
                     "market_gap": 1.2,
                 }
             )

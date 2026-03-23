@@ -199,6 +199,16 @@ def add_other_genre_count(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_commercial_density_rank(df: pd.DataFrame) -> pd.DataFrame:
+    """Add percentile rank of other_genre_count within the dataset."""
+    out = df.copy()
+    if "other_genre_count" not in out.columns or out.empty:
+        out["commercial_density_rank"] = 0.0
+        return out
+    out["commercial_density_rank"] = out["other_genre_count"].rank(pct=True)
+    return out
+
+
 def add_genre_share(df: pd.DataFrame) -> pd.DataFrame:
     """Add row-level genre share within each mesh."""
     mesh_col = _mesh_col(df)
@@ -440,6 +450,22 @@ def add_nearest_station_passengers(df: pd.DataFrame, passenger_df: pd.DataFrame)
     return out
 
 
+def add_station_accessibility(df: pd.DataFrame) -> pd.DataFrame:
+    """Add station accessibility: passengers / (distance + 0.1)."""
+    out = df.copy()
+    default_series = pd.Series(0.0, index=out.index, dtype=float)
+    dist = pd.to_numeric(
+        out.get("nearest_station_distance", default_series),
+        errors="coerce",
+    ).fillna(0.0)
+    passengers = pd.to_numeric(
+        out.get("nearest_station_passengers", default_series),
+        errors="coerce",
+    ).fillna(0.0)
+    out["station_accessibility"] = passengers / (dist + 0.1)
+    return out
+
+
 def add_land_price(df: pd.DataFrame, price_df: pd.DataFrame) -> pd.DataFrame:
     """Map land price data to mesh level and merge into the analysis frame."""
     mesh_col = _mesh_col(df)
@@ -474,6 +500,7 @@ def add_all_features(
     out = add_genre_diversity(out)
     out = add_genre_hhi(out)
     out = add_other_genre_count(out)
+    out = add_commercial_density_rank(out)
     out = add_genre_share(out)
     out = add_neighbor_competition(out)
     out = add_neighbor_population(out)
@@ -484,6 +511,7 @@ def add_all_features(
         out = add_nearest_station(out, station_df)
     if passenger_df is not None:
         out = add_nearest_station_passengers(out, passenger_df)
+        out = add_station_accessibility(out)
     if price_df is not None and not price_df.empty:
         out = add_land_price(out, price_df)
     logger.info("Feature engineering completed: %d -> %d columns", len(df.columns), len(out.columns))

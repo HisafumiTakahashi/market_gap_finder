@@ -4,7 +4,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.analyze.ml_model import compare_with_v3, compute_market_gap, prepare_features, train_cv, tune_hyperparams
+from src.analyze.ml_model import (
+    compare_with_v3,
+    compute_market_gap,
+    filter_recommendations,
+    prepare_features,
+    train_cv,
+    tune_hyperparams,
+)
 
 
 @pytest.fixture()
@@ -93,6 +100,12 @@ class TestTrainCv:
         assert len(result["fold_metrics"]) == 2
         assert len(result["oof_predictions"]) == len(ml_df)
 
+    def test_train_cv_returns_fold_predictions(self, ml_df: pd.DataFrame) -> None:
+        result = train_cv(ml_df, n_splits=2, num_rounds=20)
+        assert "fold_predictions" in result
+        assert result["fold_predictions"].shape == (len(ml_df), 2)
+        assert np.any(result["fold_predictions"] != 0)
+
     def test_train_cv_uses_group_kfold_when_group_col_exists(self, ml_df: pd.DataFrame, monkeypatch: pytest.MonkeyPatch) -> None:
         called = {"groups": None}
 
@@ -136,6 +149,117 @@ class TestComputeMarketGap:
         assert result.loc[0, "market_gap"] == pytest.approx(np.log1p(3) - np.log1p(2))
         assert result.loc[0, "predicted_count"] == pytest.approx(3.0)
         assert result.loc[0, "gap_count"] == pytest.approx(1.0)
+
+    def test_compute_market_gap_with_ci(self, ml_df: pd.DataFrame) -> None:
+        predictions = np.array(
+            [1.80, 1.55, 1.50, np.log1p(6), np.log1p(7), np.log1p(8)],
+            dtype=float,
+        )
+        fold_predictions = np.array(
+            [
+                [1.00, 1.20],
+                [1.40, 1.60],
+                [1.40, 1.60],
+                [1.80, 2.00],
+                [1.90, 2.10],
+                [2.00, 2.20],
+            ],
+            dtype=float,
+        )
+        result = compute_market_gap(ml_df, predictions, fold_predictions=fold_predictions)
+        assert {"gap_std", "gap_ci_lower", "gap_ci_upper", "gap_reliability"} <= set(result.columns)
+        assert (result["gap_ci_lower"] < result["market_gap"]).all()
+        assert (result["market_gap"] < result["gap_ci_upper"]).all()
+        assert result.loc[0, "market_gap"] > 0
+        assert result.loc[0, "gap_ci_lower"] > 0
+        assert result.loc[0, "gap_reliability"] == "high"
+        assert result.loc[1, "market_gap"] > 0
+        assert result.loc[1, "gap_ci_lower"] <= 0
+        assert result.loc[1, "gap_reliability"] == "medium"
+        assert result.loc[2, "market_gap"] <= 0
+        assert result.loc[2, "gap_reliability"] == "low"
+
+    def test_reliability_boundary_ci_lower_zero(self, ml_df: pd.DataFrame) -> None:
+        actual = np.log1p(2)
+        predictions = np.array(
+            [actual + 0.196, np.log1p(4), np.log1p(5), np.log1p(6), np.log1p(7), np.log1p(8)],
+            dtype=float,
+        )
+        fold_predictions = np.array(
+            [
+                [0.90, 1.10],
+                [1.10, 1.30],
+                [1.30, 1.50],
+                [1.50, 1.70],
+                [1.70, 1.90],
+                [1.90, 2.10],
+            ],
+            dtype=float,
+        )
+        result = compute_market_gap(ml_df, predictions, fold_predictions=fold_predictions)
+        assert result.loc[0, "gap_ci_lower"] == pytest.approx(0.0, abs=1e-12)
+        assert result.loc[0, "gap_reliability"] == "medium"
+
+    def test_reliability_boundary_gap_zero(self, ml_df: pd.DataFrame) -> None:
+        predictions = np.log1p(ml_df["restaurant_count"].to_numpy(dtype=float))
+        fold_predictions = np.array(
+            [
+                [0.90, 1.10],
+                [1.10, 1.30],
+                [1.30, 1.50],
+                [1.50, 1.70],
+                [1.70, 1.90],
+                [1.90, 2.10],
+            ],
+            dtype=float,
+        )
+        result = compute_market_gap(ml_df, predictions, fold_predictions=fold_predictions)
+        assert result.loc[0, "market_gap"] == pytest.approx(0.0)
+        assert result.loc[0, "gap_reliability"] == "low"
+
+    def test_compute_market_gap_without_ci(self, ml_df: pd.DataFrame) -> None:
+        predictions = np.log1p(np.array([3, 4, 5, 6, 7, 8], dtype=float))
+        result = compute_market_gap(ml_df, predictions)
+        assert "gap_std" not in result.columns
+        assert "gap_ci_lower" not in result.columns
+        assert "gap_ci_upper" not in result.columns
+        assert "gap_reliability" not in result.columns
+
+
+class TestFilterRecommendations:
+    def test_filter_by_rc(self, ml_df: pd.DataFrame) -> None:
+        df = ml_df.assign(gap_count=1.5, market_gap=0.5, gap_reliability="high")
+        result = filter_recommendations(df, min_rc=5, min_gap_count=1.0, min_reliability="medium")
+        assert not result.empty
+        assert (result["restaurant_count"] >= 5).all()
+
+    def test_filter_by_gap_count(self, ml_df: pd.DataFrame) -> None:
+        df = ml_df.assign(gap_count=[0.5, 1.0, 1.5, 0.9, 2.0, 3.0], market_gap=0.5, gap_reliability="high")
+        result = filter_recommendations(df, min_rc=2, min_gap_count=1.0, min_reliability="medium")
+        assert not result.empty
+        assert (result["gap_count"] >= 1.0).all()
+
+    def test_filter_by_reliability(self, ml_df: pd.DataFrame) -> None:
+        df = ml_df.assign(
+            gap_count=1.5,
+            market_gap=0.5,
+            gap_reliability=["high", "medium", "low", "medium", "high", "low"],
+        )
+        result = filter_recommendations(df, min_rc=2, min_gap_count=1.0, min_reliability="medium")
+        assert not result.empty
+        assert set(result["gap_reliability"]) <= {"high", "medium"}
+        assert "low" not in set(result["gap_reliability"])
+
+    def test_filter_empty_df(self) -> None:
+        df = pd.DataFrame(columns=["restaurant_count", "gap_count", "gap_reliability", "market_gap"])
+        result = filter_recommendations(df, min_rc=2, min_gap_count=1.0, min_reliability="medium")
+        assert result.empty
+
+    def test_filter_without_reliability_column(self, ml_df: pd.DataFrame) -> None:
+        df = ml_df.assign(gap_count=1.5, market_gap=0.5).drop(columns=["opportunity_score"])
+        result = filter_recommendations(df, min_rc=2, min_gap_count=1.0, min_reliability="medium")
+        assert not result.empty
+        assert "gap_reliability" not in result.columns
 
 
 class TestCompareWithV3:

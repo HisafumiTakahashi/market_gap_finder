@@ -7,6 +7,7 @@ from src.analyze.features import (
     _mesh_col,
     _neighbor_mesh_codes,
     add_all_features,
+    add_commercial_density_rank,
     add_genre_diversity,
     add_genre_hhi,
     add_genre_saturation,
@@ -15,6 +16,7 @@ from src.analyze.features import (
     add_neighbor_population,
     add_other_genre_count,
     add_saturation_index,
+    add_station_accessibility,
 )
 from src.analyze.constants import _COMPETITOR_OFFSET, _POP_UNIT
 
@@ -115,6 +117,25 @@ class TestAddOtherGenreCount:
         assert result["other_genre_count"].tolist() == [0, 0]
 
 
+class TestCommercialDensityRank:
+    def test_basic(self) -> None:
+        df = pd.DataFrame(
+            {
+                "jis_mesh": ["m1", "m1", "m2"],
+                "unified_genre": ["cafe", "ramen", "cafe"],
+                "restaurant_count": [5, 3, 10],
+                "other_genre_count": [3, 5, 0],
+            }
+        )
+        result = add_commercial_density_rank(df)
+        assert "commercial_density_rank" in result.columns
+        assert result["commercial_density_rank"].between(0, 1).all()
+
+    def test_empty(self) -> None:
+        result = add_commercial_density_rank(pd.DataFrame())
+        assert "commercial_density_rank" in result.columns
+
+
 class TestAddGenreShare:
     def test_adds_column(self, sample_df: pd.DataFrame) -> None:
         result = add_genre_share(sample_df)
@@ -175,6 +196,24 @@ class TestAddNeighborPopulation:
         assert target == pytest.approx((2000 + 3000) / 8)
 
 
+class TestStationAccessibility:
+    def test_basic(self) -> None:
+        df = pd.DataFrame(
+            {
+                "nearest_station_distance": [0.2, 0.5, 1.0],
+                "nearest_station_passengers": [10000, 20000, 5000],
+            }
+        )
+        result = add_station_accessibility(df)
+        assert "station_accessibility" in result.columns
+        assert result["station_accessibility"].iloc[0] == pytest.approx(10000 / 0.3)
+
+    def test_missing_columns(self) -> None:
+        result = add_station_accessibility(pd.DataFrame({"x": [1]}))
+        assert "station_accessibility" in result.columns
+        assert result["station_accessibility"].iloc[0] == pytest.approx(0.0)
+
+
 class TestAddAllFeatures:
     def test_adds_all_columns(self, sample_df: pd.DataFrame) -> None:
         result = add_all_features(sample_df)
@@ -182,6 +221,7 @@ class TestAddAllFeatures:
             "genre_diversity",
             "genre_hhi",
             "other_genre_count",
+            "commercial_density_rank",
             "genre_share",
             "neighbor_avg_restaurants",
             "neighbor_avg_population",

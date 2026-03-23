@@ -44,19 +44,28 @@ NUMERIC_FEATURES = [
     "genre_diversity",
     "genre_hhi",
     "other_genre_count",
+    "commercial_density_rank",
     "neighbor_avg_restaurants",
     "neighbor_avg_population",
     "saturation_index",
     "nearest_station_distance",
     "nearest_station_passengers",
+    "station_accessibility",
     "land_price",
     "google_avg_rating",
     "reviews_per_shop",
     "google_density",
 ]
-LOG_TRANSFORM_FEATURES = {"other_genre_count", "neighbor_avg_restaurants", "google_total_reviews"}
+LOG_TRANSFORM_FEATURES = {
+    "other_genre_count",
+    "neighbor_avg_restaurants",
+    "google_total_reviews",
+    "land_price",
+    "station_accessibility",
+}
 CATEGORICAL_FEATURE = "unified_genre"
 TARGET_COL = "restaurant_count"
+GENRE_ORDER = ["cafe", "chinese", "curry", "italian", "izakaya", "other", "ramen", "washoku", "yakiniku"]
 DEFAULT_PARAMS = {
     "objective": "regression",
     "metric": "rmse",
@@ -108,7 +117,8 @@ def prepare_features(df: pd.DataFrame, target_mode: str = "raw") -> tuple[pd.Dat
             feature_cols.append(col)
 
     if CATEGORICAL_FEATURE in work.columns:
-        work["genre_encoded"] = work[CATEGORICAL_FEATURE].astype("category").cat.codes
+        dtype = pd.CategoricalDtype(categories=GENRE_ORDER, ordered=True)
+        work["genre_encoded"] = work[CATEGORICAL_FEATURE].astype(dtype).cat.codes
         feature_cols.append("genre_encoded")
 
     if "land_price" in feature_cols and "saturation_index" in feature_cols:

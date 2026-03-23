@@ -110,6 +110,20 @@ class TestComputeDemandScoreV2:
         result = compute_demand_score_v2(empty_df)
         assert result.empty
 
+    def test_nan_population_handled(self) -> None:
+        """人口がNaNの行でもエラーにならず、スコアが算出される。"""
+        df = pd.DataFrame(
+            {
+                "mesh_code": ["m1", "m2", "m3"],
+                "unified_genre": ["cafe", "ramen", "izakaya"],
+                "restaurant_count": [5, 10, 3],
+                "population": [50000, np.nan, 30000],
+            }
+        )
+        result = compute_demand_score_v2(df)
+        assert len(result) == 3
+        assert not result.isna().any(), f"NaN値が含まれている: {result.tolist()}"
+
 
 # ──────────────────────────────────────
 # compute_opportunity_score
@@ -169,6 +183,20 @@ class TestComputeOpportunityScoreV2:
     def test_empty_dataframe(self, empty_df: pd.DataFrame) -> None:
         result = compute_opportunity_score_v2(empty_df)
         assert result.empty
+
+    def test_nan_population_scores_valid(self) -> None:
+        """人口NaN行を含むDataFrameでもスコアが正常に計算される。"""
+        df = pd.DataFrame(
+            {
+                "mesh_code": ["m1", "m2"],
+                "unified_genre": ["cafe", "ramen"],
+                "restaurant_count": [5, 10],
+                "population": [np.nan, 50000],
+            }
+        )
+        result = compute_opportunity_score_v2(df)
+        assert "opportunity_score" in result.columns
+        assert result["opportunity_score"].between(0.0, 1.0).all()
 
 
 class TestComputeOpportunityScoreV3B:
@@ -257,6 +285,49 @@ class TestRankOpportunities:
         scored = compute_opportunity_score(base_df)
         result = rank_opportunities(scored, top_n=3)
         assert list(result.index) == [0, 1, 2]
+
+
+class TestGenreMappingConsistency:
+    """cleaner の GENRE_MAPPING と ml_model の GENRE_ORDER の整合性を検証。"""
+
+    def test_genre_order_covers_all_mapped_genres(self) -> None:
+        from src.analyze.ml_model import GENRE_ORDER
+        from src.preprocess.cleaner import GENRE_MAPPING
+
+        mapped_genres = set(GENRE_MAPPING.keys()) | {"other"}
+        assert set(GENRE_ORDER) == mapped_genres
+
+    def test_unknown_genre_gets_valid_code(self) -> None:
+        """GENRE_ORDERに含まれないジャンルでもエラーにならない（-1になる）。"""
+        df = pd.DataFrame(
+            {
+                "jis_mesh": ["m1"],
+                "population": [10000],
+                "genre_diversity": [1],
+                "genre_hhi": [0.5],
+                "other_genre_count": [3],
+                "neighbor_avg_restaurants": [5],
+                "neighbor_avg_population": [1000],
+                "saturation_index": [1.0],
+                "nearest_station_distance": [0.3],
+                "nearest_station_passengers": [10000],
+                "land_price": [100],
+                "google_match_count": [0],
+                "google_avg_rating": [0.0],
+                "google_total_reviews": [0],
+                "reviews_per_shop": [0],
+                "google_density": [0.5],
+                "unified_genre": ["unknown_genre"],
+                "restaurant_count": [5],
+                "opportunity_score": [0.5],
+            }
+        )
+
+        from src.analyze.ml_model import prepare_features
+
+        features, _ = prepare_features(df)
+        assert "genre_encoded" in features.columns
+        assert features["genre_encoded"].iloc[0] == -1
 
 
 # ──────────────────────────────────────

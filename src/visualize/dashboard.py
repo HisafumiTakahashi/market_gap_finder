@@ -8,11 +8,16 @@ from pathlib import Path
 import folium
 import pandas as pd
 from dash import Dash, Input, Output, dcc, html
+try:
+    from dash import dash_table
+except Exception:  # pragma: no cover - optional dependency fallback
+    dash_table = None
 from folium.plugins import HeatMap
 
 from config import settings
 from src.analyze.features import add_all_features
 from src.analyze.utils import mesh_col as _mesh_col
+from src.preprocess.mesh_converter import _CODE_TO_IDX
 from src.analyze.scoring import (
     compute_opportunity_score,
     compute_opportunity_score_v2,
@@ -52,6 +57,52 @@ def _genre_label(genre: str) -> str:
     return _GENRE_LABELS.get(genre, genre)
 
 
+def _mesh_quarter_bounds(mesh_code: str) -> tuple[float, float, float, float] | None:
+    """Return (lat_sw, lon_sw, lat_ne, lon_ne) for a 10-digit quarter mesh."""
+    code = str(mesh_code).strip()
+    if len(code) != 10 or not code.isdigit():
+        return None
+    half_code = int(code[8])
+    quarter_code = int(code[9])
+    if half_code not in _CODE_TO_IDX or quarter_code not in _CODE_TO_IDX:
+        return None
+    p, u = int(code[0:2]), int(code[2:4])
+    q, r = int(code[4]), int(code[5])
+    s, t = int(code[6]), int(code[7])
+    lat_sw = p / 1.5 + q / 12 + s / 120
+    lon_sw = u + 100 + r / 8 + t / 80
+    mesh3_lat_h = 1 / 120
+    mesh3_lon_w = 1 / 80
+    h_lat, h_lon = _CODE_TO_IDX[half_code]
+    q_lat, q_lon = _CODE_TO_IDX[quarter_code]
+    lat_sw += h_lat * (mesh3_lat_h / 2) + q_lat * (mesh3_lat_h / 4)
+    lon_sw += h_lon * (mesh3_lon_w / 2) + q_lon * (mesh3_lon_w / 4)
+    return (lat_sw, lon_sw, lat_sw + mesh3_lat_h / 4, lon_sw + mesh3_lon_w / 4)
+
+
+def _add_mesh_grid(map_obj: folium.Map, df: pd.DataFrame) -> None:
+    """Draw thin mesh grid lines for unique meshes in df."""
+    mesh_col = _mesh_col(df)
+    if mesh_col not in df.columns:
+        return
+    seen: set[str] = set()
+    for mesh_code in df[mesh_col].dropna().astype(str).unique():
+        if mesh_code in seen:
+            continue
+        seen.add(mesh_code)
+        bounds = _mesh_quarter_bounds(mesh_code)
+        if bounds is None:
+            continue
+        lat_sw, lon_sw, lat_ne, lon_ne = bounds
+        folium.Rectangle(
+            bounds=[[lat_sw, lon_sw], [lat_ne, lon_ne]],
+            color="#888888",
+            weight=0.5,
+            fill=False,
+            opacity=0.4,
+        ).add_to(map_obj)
+
+
 def _coerce_map_frame(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df.copy()
@@ -85,51 +136,9 @@ def create_score_heatmap(
     heat_data = [[float(row.lat), float(row.lng), float(weights.loc[idx])] for idx, row in plot_df.iterrows()]
     if heat_data:
         HeatMap(heat_data, radius=18, blur=14, min_opacity=0.25).add_to(map_obj)
+    _add_mesh_grid(map_obj, plot_df)
     return map_obj
 
-
-def create_population_heatmap(
-    df: pd.DataFrame,
-    center_lat: float = DEFAULT_CENTER_LAT,
-    center_lng: float = DEFAULT_CENTER_LNG,
-    zoom_start: int = DEFAULT_ZOOM_START,
-) -> folium.Map:
-    map_obj = folium.Map(location=[center_lat, center_lng], zoom_start=zoom_start, tiles="CartoDB positron")
-    plot_df = _coerce_map_frame(df)
-    if plot_df.empty or "population" not in plot_df.columns:
-        return map_obj
-    population = pd.to_numeric(plot_df["population"], errors="coerce").fillna(0.0)
-    mesh_col = _mesh_col(plot_df)
-    deduped = plot_df.assign(_pop=population).drop_duplicates(subset=[mesh_col] if mesh_col in plot_df.columns else ["lat", "lng"])
-    heat_data = [[float(row.lat), float(row.lng), float(row._pop)] for row in deduped.itertuples() if row._pop > 0]
-    if heat_data:
-        HeatMap(
-            heat_data,
-            radius=20,
-            blur=16,
-            min_opacity=0.3,
-            gradient={0.2: "blue", 0.4: "lime", 0.6: "yellow", 0.8: "orange", 1.0: "red"},
-        ).add_to(map_obj)
-    return map_obj
-
-
-def create_ml_gap_heatmap(
-    df: pd.DataFrame,
-    center_lat: float = DEFAULT_CENTER_LAT,
-    center_lng: float = DEFAULT_CENTER_LNG,
-    zoom_start: int = DEFAULT_ZOOM_START,
-) -> folium.Map:
-    map_obj = folium.Map(location=[center_lat, center_lng], zoom_start=zoom_start, tiles="CartoDB positron")
-    plot_df = _coerce_map_frame(df)
-    if plot_df.empty or "market_gap" not in plot_df.columns:
-        return map_obj
-    gap = pd.to_numeric(plot_df["market_gap"], errors="coerce").fillna(0.0)
-    positive = plot_df.assign(_gap=gap)
-    positive = positive[positive["_gap"] > 0]
-    heat_data = [[float(row.lat), float(row.lng), float(row._gap)] for row in positive.itertuples()]
-    if heat_data:
-        HeatMap(heat_data, radius=18, blur=14, min_opacity=0.25).add_to(map_obj)
-    return map_obj
 
 
 def create_marker_map(df: pd.DataFrame, top_n: int = 20) -> folium.Map:
@@ -197,6 +206,7 @@ def create_marker_map(df: pd.DataFrame, top_n: int = 20) -> folium.Map:
             tooltip=display_name,
         ).add_to(map_obj)
 
+    _add_mesh_grid(map_obj, plot_df)
     return map_obj
 
 
@@ -224,6 +234,12 @@ def _refresh_reason(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df = df.copy()
     df["reason"] = df.apply(generate_reason, axis=1)
+    return df
+
+
+def _filter_genre(df: pd.DataFrame, selected_genre: str) -> pd.DataFrame:
+    if selected_genre and selected_genre != "__all__" and "unified_genre" in df.columns:
+        return df[df["unified_genre"].astype(str) == selected_genre]
     return df
 
 
@@ -281,8 +297,30 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
             data_cache[key] = _refresh_reason(_load_and_score(tag=area_tag, version=version))
         return data_cache[key]
 
+    def _get_filtered_data(area_tag: str, version: str, selected_genre: str, top_n: int | None = None) -> pd.DataFrame:
+        resolved_tag = area_tag or tag
+        resolved_version = version or "v4"
+        if resolved_tag == "__all__":
+            frames: list[pd.DataFrame] = []
+            for current_tag in available_tags:
+                area_df = _filter_genre(_get_data(current_tag, resolved_version).copy(), selected_genre)
+                if area_df.empty:
+                    continue
+                area_df["area"] = _AREA_LABELS.get(current_tag, current_tag)
+                if top_n is not None and "opportunity_score" in area_df.columns:
+                    area_df = area_df.nlargest(top_n, "opportunity_score")
+                frames.append(area_df)
+            if not frames:
+                return pd.DataFrame()
+            return pd.concat(frames, ignore_index=True)
+
+        filtered_df = _filter_genre(_get_data(resolved_tag, resolved_version).copy(), selected_genre)
+        if top_n is not None and "opportunity_score" in filtered_df.columns:
+            return filtered_df.nlargest(top_n, "opportunity_score")
+        return filtered_df
+
     init_data = _get_data(selected_tag, "v4")
-    genre_options = [{"label": "全ジャンル", "value": "__all__"}]
+    genre_options = [{"label": "\u5168\u30b8\u30e3\u30f3\u30eb", "value": "__all__"}]
     if "unified_genre" in init_data.columns:
         genre_values = init_data["unified_genre"].dropna().astype(str).sort_values().unique().tolist()
         genre_options.extend({"label": _genre_label(g), "value": g} for g in genre_values)
@@ -298,7 +336,7 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
                             html.Label("エリア"),
                             dcc.Dropdown(
                                 id="area-selector",
-                                options=[{"label": _AREA_LABELS.get(area_tag, area_tag), "value": area_tag} for area_tag in available_tags],
+                                options=[{"label": "\u5168\u30a8\u30ea\u30a2\u6bd4\u8f03", "value": "__all__"}] + [{"label": _AREA_LABELS.get(area_tag, area_tag), "value": area_tag} for area_tag in available_tags],
                                 value=selected_tag,
                                 clearable=False,
                             ),
@@ -336,8 +374,6 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
                                 id="map-mode",
                                 options=[
                                     {"label": "スコアヒートマップ", "value": "heatmap"},
-                                    {"label": "MLギャップヒートマップ", "value": "ml_gap"},
-                                    {"label": "人口ヒートマップ", "value": "population"},
                                     {"label": "マーカー", "value": "markers"},
                                 ],
                                 value="heatmap",
@@ -357,6 +393,17 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
                 style={"marginTop": "20px"},
             ),
             html.Iframe(id="map-frame", style={"width": "100%", "height": "75vh", "border": "none", "marginTop": "20px"}),
+            (
+                dash_table.DataTable(
+                    id="ranking-table",
+                    data=[],
+                    columns=[],
+                    style_table={"overflowX": "auto", "marginTop": "20px"},
+                    style_cell={"whiteSpace": "normal", "height": "auto", "textAlign": "left"},
+                )
+                if dash_table is not None
+                else html.Div(id="ranking-table", style={"marginTop": "20px", "display": "none"})
+            ),
         ],
         style={"padding": "16px"},
     )
@@ -367,8 +414,8 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
         Input("area-selector", "value"),
     )
     def _update_genre_options(area_tag: str) -> tuple[list[dict], str]:
-        df = _get_data(area_tag or tag, "v4")
-        options = [{"label": "全ジャンル", "value": "__all__"}]
+        df = _get_filtered_data(area_tag or tag, "v4", "__all__")
+        options = [{"label": "\u5168\u30b8\u30e3\u30f3\u30eb", "value": "__all__"}]
         if "unified_genre" in df.columns:
             for g in sorted(df["unified_genre"].dropna().astype(str).unique()):
                 options.append({"label": _genre_label(g), "value": g})
@@ -383,24 +430,87 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
         Input("map-mode", "value"),
     )
     def _update_map(area_tag: str, score_version: str, selected_genre: str, top_n: int, map_mode: str) -> str:
-        filtered_df = _get_data(area_tag or tag, score_version or "v2").copy()
-        if selected_genre and selected_genre != "__all__" and "unified_genre" in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df["unified_genre"].astype(str) == selected_genre]
+        if area_tag == "__all__":
+            filtered_df = _get_filtered_data(area_tag, score_version or "v4", selected_genre, top_n=top_n or 20)
+        else:
+            filtered_df = _get_filtered_data(area_tag or tag, score_version or "v4", selected_genre)
 
         center_lat, center_lng = _resolve_map_center(_coerce_map_frame(filtered_df))
-        if map_mode == "markers":
+        if area_tag == "__all__":
+            map_obj = create_marker_map(filtered_df, top_n=len(filtered_df))
+        elif map_mode == "markers":
             map_obj = create_marker_map(filtered_df, top_n=top_n or 20)
-        elif map_mode == "population":
-            map_obj = create_population_heatmap(filtered_df, center_lat=center_lat, center_lng=center_lng, zoom_start=DEFAULT_ZOOM_START)
-        elif map_mode == "ml_gap":
-            map_obj = create_ml_gap_heatmap(filtered_df, center_lat=center_lat, center_lng=center_lng, zoom_start=DEFAULT_ZOOM_START)
         else:
             map_obj = create_score_heatmap(filtered_df, center_lat=center_lat, center_lng=center_lng, zoom_start=DEFAULT_ZOOM_START)
         return map_obj.get_root().render()
 
-    return app
+    if dash_table is not None:
+        @app.callback(
+            Output("ranking-table", "data"),
+            Output("ranking-table", "columns"),
+            Input("area-selector", "value"),
+            Input("score-version", "value"),
+            Input("genre-filter", "value"),
+            Input("top-n", "value"),
+        )
+        def _update_ranking_table(
+            area_tag: str,
+            score_version: str,
+            selected_genre: str,
+            top_n: int,
+        ) -> tuple[list[dict[str, object]], list[dict[str, str]]]:
+            effective_top_n = top_n or 20
+            filtered_df = _get_filtered_data(
+                area_tag or tag,
+                score_version or "v4",
+                selected_genre,
+                top_n=effective_top_n if area_tag == "__all__" else None,
+            )
+            base_columns = [
+                "\u9806\u4f4d",
+                "\u30b8\u30e3\u30f3\u30eb",
+                "\u6700\u5bc4\u99c5",
+                "\u30b9\u30b3\u30a2",
+                "\u5e97\u8217\u6570",
+                "\u4eba\u53e3",
+                "\u7406\u7531",
+            ]
+            if area_tag == "__all__":
+                base_columns.insert(1, "\u30a8\u30ea\u30a2")
+            if filtered_df.empty:
+                return [], [{"name": col, "id": col} for col in base_columns]
 
+            table_df = filtered_df.nlargest(effective_top_n, "opportunity_score")
+            table_data: list[dict[str, object]] = []
+            for rank, (_, row) in enumerate(table_df.iterrows(), 1):
+                score = float(pd.to_numeric(pd.Series([row.get("opportunity_score", 0)]), errors="coerce").fillna(0.0).iloc[0])
+                record: dict[str, object] = {
+                    "\u9806\u4f4d": rank,
+                    "\u30b8\u30e3\u30f3\u30eb": _genre_label(str(row.get("unified_genre", ""))),
+                    "\u6700\u5bc4\u99c5": str(row.get("nearest_station_name", "")),
+                    "\u30b9\u30b3\u30a2": f"{score:.3f}",
+                    "\u5e97\u8217\u6570": int(pd.to_numeric(pd.Series([row.get("restaurant_count", 0)]), errors="coerce").fillna(0).iloc[0]),
+                    "\u4eba\u53e3": int(pd.to_numeric(pd.Series([row.get("population", 0)]), errors="coerce").fillna(0).iloc[0]),
+                    "\u7406\u7531": str(row.get("reason", "")),
+                }
+                if area_tag == "__all__":
+                    record = {
+                        "\u9806\u4f4d": record["\u9806\u4f4d"],
+                        "\u30a8\u30ea\u30a2": str(row.get("area", "")),
+                        "\u30b8\u30e3\u30f3\u30eb": record["\u30b8\u30e3\u30f3\u30eb"],
+                        "\u6700\u5bc4\u99c5": record["\u6700\u5bc4\u99c5"],
+                        "\u30b9\u30b3\u30a2": record["\u30b9\u30b3\u30a2"],
+                        "\u5e97\u8217\u6570": record["\u5e97\u8217\u6570"],
+                        "\u4eba\u53e3": record["\u4eba\u53e3"],
+                        "\u7406\u7531": record["\u7406\u7531"],
+                    }
+                table_data.append(record)
+
+            return table_data, [{"name": col, "id": col} for col in table_data[0].keys()]
+
+    return app
 
 def run_dashboard(tag: str = "result", host: str = "127.0.0.1", port: int = 8050) -> None:
     app = build_dash_app(tag=tag)
     app.run(host=host, port=port, debug=False)
+

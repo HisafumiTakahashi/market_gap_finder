@@ -74,6 +74,17 @@ class TestPrepareFeatures:
         assert not features.empty
         assert target.mean() == pytest.approx(0.0, abs=1.0)
 
+    def test_genre_encoded_stable_across_subsets(self, ml_df: pd.DataFrame) -> None:
+        """異なるサブセットでもgenre_encodedの値が同じことを検証。"""
+        full_features, _ = prepare_features(ml_df)
+        subset = ml_df[ml_df["unified_genre"].isin(["cafe", "ramen"])].reset_index(drop=True)
+        subset_features, _ = prepare_features(subset)
+
+        cafe_code_full = full_features.loc[ml_df["unified_genre"] == "cafe", "genre_encoded"].iloc[0]
+        cafe_code_subset = subset_features.loc[subset["unified_genre"] == "cafe", "genre_encoded"].iloc[0]
+
+        assert cafe_code_full == cafe_code_subset
+
 
 class TestTrainCv:
     def test_train_cv_result_keys(self, ml_df: pd.DataFrame) -> None:

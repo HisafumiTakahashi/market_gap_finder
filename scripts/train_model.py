@@ -15,6 +15,7 @@ from src.analyze.ml_model import (
     compare_with_v3,
     compute_market_gap,
     compute_shap_values,
+    filter_recommendations,
     save_model,
     train_cv,
     train_full_model,
@@ -104,6 +105,43 @@ def print_top_gaps(gap_df: pd.DataFrame, top_n: int, section_no: int = 3) -> Non
             f"  {rank:2d}. {row.get('jis_mesh', row.get('jis_mesh3', ''))} x {row.get('unified_genre', ''):10s} | "
             f"gap={row['market_gap']:+.3f} | pred={row['predicted_count']:.1f} actual={row['restaurant_count']:.0f} | "
             f"pop={int(row.get('population', 0)):,} | station={row.get('nearest_station_distance', 0):.2f}km"
+        )
+    print()
+
+
+def print_top_gaps_with_ci(gap_df: pd.DataFrame, top_n: int, section_no: int = 4) -> None:
+    """Print filtered recommendations with confidence intervals."""
+    print("=" * 60)
+    print(f"{section_no}. Filtered Recommendations (high/medium reliability)")
+    print("=" * 60)
+
+    if "gap_reliability" in gap_df.columns:
+        counts = gap_df["gap_reliability"].value_counts()
+        print(
+            "  Reliability summary: "
+            f"high: {int(counts.get('high', 0))}件, "
+            f"medium: {int(counts.get('medium', 0))}件, "
+            f"low: {int(counts.get('low', 0))}件"
+        )
+        print()
+
+    filtered = filter_recommendations(
+        gap_df,
+        min_rc=2,
+        min_gap_count=1.0,
+        min_reliability="medium",
+    )
+    if filtered.empty:
+        print("  No recommendations passed the filter.")
+        print()
+        return
+
+    for rank, (_, row) in enumerate(filtered.head(top_n).iterrows(), 1):
+        print(
+            f"  {rank:2d}. {row.get('jis_mesh', row.get('jis_mesh3', ''))} x {row.get('unified_genre', ''):10s} | "
+            f"gap={row['market_gap']:+.3f} [CI: {row['gap_ci_lower']:+.3f} ~ {row['gap_ci_upper']:+.3f}] | "
+            f"{row.get('gap_reliability', 'n/a')} | pred={row['predicted_count']:.1f} actual={row['restaurant_count']:.0f} | "
+            f"pop={int(row.get('population', 0)):,}"
         )
     print()
 
@@ -208,11 +246,17 @@ def main() -> int:
 
         print_feature_importance(cv_results["feature_importance"], section_no=3 if args.tune else 2)
 
-        gap_df = compute_market_gap(df, cv_results["oof_predictions"], target_mode=target_mode)
+        gap_df = compute_market_gap(
+            df,
+            cv_results["oof_predictions"],
+            target_mode=target_mode,
+            fold_predictions=cv_results["fold_predictions"],
+        )
         gap_df = compute_opportunity_score_v3b(gap_df)
         print_top_gaps(gap_df, args.top_n, section_no=4 if args.tune else 3)
+        print_top_gaps_with_ci(gap_df, args.top_n, section_no=5 if args.tune else 4)
 
-        next_section = 5 if args.tune else 4
+        next_section = 6 if args.tune else 5
         if "opportunity_score" in gap_df.columns:
             comparison_df = compare_with_v3(gap_df)
             print_v3_comparison(comparison_df, args.top_n, section_no=next_section)

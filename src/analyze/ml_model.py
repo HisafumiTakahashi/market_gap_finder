@@ -168,6 +168,7 @@ def train_cv(
         splitter = KFold(n_splits=n_splits, shuffle=True, random_state=42)
 
     shuffled_oof_predictions = np.zeros(len(work))
+    shuffled_fold_predictions = np.zeros((len(work), n_splits))
     fold_metrics = []
     feature_importance_list = []
 
@@ -192,7 +193,9 @@ def train_cv(
         )
 
         val_pred = model.predict(X_val)
+        full_pred = model.predict(features)
         shuffled_oof_predictions[val_idx] = val_pred
+        shuffled_fold_predictions[:, fold_idx - 1] = full_pred
 
         fold_metrics.append(
             {
@@ -211,10 +214,14 @@ def train_cv(
         )
 
     clean_oof_predictions = np.zeros(len(clean_df))
+    clean_fold_predictions = np.zeros((len(clean_df), n_splits))
     clean_oof_predictions[work["_original_index"].to_numpy()] = shuffled_oof_predictions
+    clean_fold_predictions[work["_original_index"].to_numpy()] = shuffled_fold_predictions
 
     oof_predictions = np.zeros(len(df))
+    fold_predictions = np.zeros((len(df), n_splits))
     oof_predictions[np.flatnonzero(clean_mask.to_numpy())] = clean_oof_predictions
+    fold_predictions[np.flatnonzero(clean_mask.to_numpy())] = clean_fold_predictions
 
     importance_df = (
         pd.concat(feature_importance_list)
@@ -229,6 +236,7 @@ def train_cv(
         "avg_rmse": float(np.mean([m["rmse"] for m in fold_metrics])),
         "avg_r2": float(np.mean([m["r2"] for m in fold_metrics])),
         "oof_predictions": oof_predictions,
+        "fold_predictions": fold_predictions,
         "feature_importance": importance_df,
         "n_filtered": int((~clean_mask).sum()),
     }
@@ -309,7 +317,12 @@ def tune_hyperparams(
     }
 
 
-def compute_market_gap(df: pd.DataFrame, oof_predictions: np.ndarray, target_mode: str = "raw") -> pd.DataFrame:
+def compute_market_gap(
+    df: pd.DataFrame,
+    oof_predictions: np.ndarray,
+    target_mode: str = "raw",
+    fold_predictions: np.ndarray | None = None,
+) -> pd.DataFrame:
     """Compute model predicted gap vs actual restaurant count."""
     out = df.copy()
     actual = np.log1p(pd.to_numeric(out[TARGET_COL], errors="coerce").fillna(0).values)
@@ -326,6 +339,46 @@ def compute_market_gap(df: pd.DataFrame, oof_predictions: np.ndarray, target_mod
     else:
         out["predicted_count"] = np.expm1(oof_predictions)
         out["gap_count"] = out["predicted_count"] - pd.to_numeric(out[TARGET_COL], errors="coerce").fillna(0).values
+
+    if fold_predictions is not None:
+        gap_std = np.std(fold_predictions, axis=1)
+        out["gap_std"] = gap_std
+        ci_lower = out["market_gap"].to_numpy() - 1.96 * gap_std
+        ci_upper = out["market_gap"].to_numpy() + 1.96 * gap_std
+        out["gap_ci_lower"] = ci_lower
+        out["gap_ci_upper"] = ci_upper
+
+        reliability = np.full(len(out), "low", dtype=object)
+        high_mask = ci_lower > 0
+        medium_mask = (out["market_gap"].to_numpy() > 0) & ~high_mask
+        reliability[high_mask] = "high"
+        reliability[medium_mask] = "medium"
+        out["gap_reliability"] = reliability
+
+    return out
+
+
+def filter_recommendations(
+    df: pd.DataFrame,
+    min_rc: int = 2,
+    min_gap_count: float = 1.0,
+    min_reliability: str | None = "medium",
+) -> pd.DataFrame:
+    """Filter and sort recommendation candidates."""
+    out = df.copy()
+
+    if "restaurant_count" in out.columns:
+        out = out.loc[pd.to_numeric(out["restaurant_count"], errors="coerce").fillna(0) >= min_rc]
+    if "gap_count" in out.columns:
+        out = out.loc[pd.to_numeric(out["gap_count"], errors="coerce").fillna(0) >= min_gap_count]
+
+    if min_reliability in {"high", "medium"} and "gap_reliability" in out.columns:
+        allowed = {"high"} if min_reliability == "high" else {"high", "medium"}
+        out = out.loc[out["gap_reliability"].isin(allowed)]
+
+    if "market_gap" in out.columns:
+        out = out.sort_values("market_gap", ascending=False)
+
     return out
 
 

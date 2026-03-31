@@ -21,33 +21,16 @@ from src.analyze.utils import mesh_col as _mesh_col
 logger = logging.getLogger(__name__)
 
 DEMAND_FEATURES = [
-    "population",
-    "pop_working",
-    "households",
-    "neighbor_avg_population",
     "nearest_station_passengers",
     "land_price",
     "nearest_station_distance",
 ]
 NUMERIC_FEATURES = [
-    "population",
-    "pop_working",
-    "pop_adult",
-    "pop_elderly",
-    "households",
-    "single_households",
-    "young_single",
-    "working_ratio",
-    "elderly_ratio",
-    "single_ratio",
-    "young_single_ratio",
     "genre_diversity",
     "genre_hhi",
     "other_genre_count",
     "commercial_density_rank",
     "neighbor_avg_restaurants",
-    "neighbor_avg_population",
-    "saturation_index",
     "nearest_station_distance",
     "nearest_station_passengers",
     "station_accessibility",
@@ -124,10 +107,6 @@ def prepare_features(df: pd.DataFrame, target_mode: str = "raw") -> tuple[pd.Dat
     if "land_price" in feature_cols and "saturation_index" in feature_cols:
         work["price_x_saturation"] = work["land_price"] * work["saturation_index"]
         feature_cols.append("price_x_saturation")
-
-    if "population" in feature_cols and "nearest_station_distance" in feature_cols:
-        work["pop_x_station_dist"] = work["population"] * work["nearest_station_distance"]
-        feature_cols.append("pop_x_station_dist")
 
     return work[feature_cols].copy(), target
 

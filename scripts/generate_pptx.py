@@ -361,7 +361,9 @@ def generate_eda_charts(out_dir: Path | str = CHART_DIR) -> Path:
     fig.savefig(out_dir / "shap_importance_top10.png", dpi=180)
     plt.close(fig)
 
-    # 人口データの欠損率（ゼロ値＝e-Stat未提供）
+    # 人口データの欠損率（4分の1メッシュ単位、ゼロ値＝e-Stat未提供）
+    mesh_df = tokyo_df.drop_duplicates(subset="jis_mesh")
+    n_meshes = len(mesh_df)
     pop_cols_labels = {
         "population": "総人口",
         "pop_working": "労働人口",
@@ -374,13 +376,13 @@ def generate_eda_charts(out_dir: Path | str = CHART_DIR) -> Path:
     zero_rates = []
     labels = []
     for col, label in pop_cols_labels.items():
-        if col in tokyo_df.columns:
-            rate = (tokyo_df[col] == 0).sum() / len(tokyo_df) * 100
+        if col in mesh_df.columns:
+            rate = (mesh_df[col] == 0).sum() / n_meshes * 100
             zero_rates.append(rate)
             labels.append(label)
     fig, ax = plt.subplots(figsize=(5.2, 3.2))
     bars = ax.barh(labels, zero_rates, color="#2D5BE3")
-    ax.set_title("人口データのゼロ値率（＝e-Stat未提供）", fontsize=13, fontweight="bold")
+    ax.set_title(f"人口データのゼロ値率（メッシュ単位, n={n_meshes:,}）", fontsize=13, fontweight="bold")
     ax.set_xlabel("ゼロ値の割合 (%)")
     ax.set_xlim(0, max(zero_rates) * 1.3 if zero_rates else 5)
     ax.grid(True, axis="x")
@@ -581,7 +583,7 @@ def build_eda_hist_slide(prs: Presentation) -> None:
         [
             "ほとんどのエリアは店舗1〜2軒、一部だけ100軒超 → データが偏っている",
             "「他ジャンルの店が多いエリア」ほど飲食店が多い → 商業集積が鍵",
-            "人口データの欠損は0.2%（5/1,233メッシュ）→ ほぼ完全に揃っている",
+            "人口データの欠損は0.4%（5/1,233メッシュ）→ ほぼ完全に揃っている",
         ],
         font_size=14,
         bullet=True,
@@ -598,7 +600,7 @@ def build_eda_hist_slide(prs: Presentation) -> None:
         Inches(1.7),
         [
             "偏ったデータ → 対数変換（log）で公平に比較",
-            "人口データの欠損0.2% → ゼロ埋めしてMLモデルに含む（除外しても精度差なし）",
+            "人口データの欠損0.4% → ゼロ埋めしてMLモデルに含む（除外しても精度差なし）",
         ],
         font_size=14,
         bullet=True,
@@ -703,7 +705,7 @@ def build_feature_slide(prs: Presentation) -> None:
         font_size=11,
         col_widths=[Inches(1.8), Inches(0.8), Inches(7.0), Inches(2.6)],
     )
-    add_textbox(slide, Inches(0.65), Inches(6.45), Inches(12.0), Inches(0.35), "補足: MLは26特徴量を使用（人口系含む）。人口欠損0.2%はゼロ埋め。Optuna 100 trialでチューニング済み。", font_size=14, color=MUTED)
+    add_textbox(slide, Inches(0.65), Inches(6.45), Inches(12.0), Inches(0.35), "補足: MLは26特徴量を使用（人口系含む）。人口欠損0.4%はゼロ埋め。Optuna 100 trialでチューニング済み。", font_size=14, color=MUTED)
 
 
 def build_accuracy_slide(prs: Presentation) -> None:

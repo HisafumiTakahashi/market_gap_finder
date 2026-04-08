@@ -325,21 +325,38 @@ def generate_eda_charts(out_dir: Path | str = CHART_DIR) -> Path:
     actual_count = scatter_df["restaurant_count"].to_numpy()
     predicted_count = np.expm1(scatter_df["predicted_log_count"].to_numpy())
     rmse_count = np.sqrt(np.mean((actual_count - predicted_count) ** 2))
-    ss_res = np.sum((actual_count - predicted_count) ** 2)
-    ss_tot = np.sum((actual_count - actual_count.mean()) ** 2)
-    r2_value = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+    # 全体散布図
     fig, ax = plt.subplots(figsize=(5.8, 4.8))
     ax.scatter(actual_count, predicted_count, color="#2D5BE3", alpha=0.35, s=18, edgecolors="none")
     upper = max(actual_count.max(), predicted_count.max())
     ax.plot([0, upper], [0, upper], linestyle="--", color="#DB4437", linewidth=1.5, label="y = x（完全一致）")
-    ax.set_title("実際の店舗数 vs 予測店舗数", fontsize=14, fontweight="bold")
+    ax.set_title("実際の店舗数 vs 予測店舗数（全体）", fontsize=14, fontweight="bold")
     ax.set_xlabel("実際の店舗数")
     ax.set_ylabel("予測店舗数")
-    ax.text(0.05, 0.93, f"R² = {r2_value:.3f}  RMSE = {rmse_count:.1f}", transform=ax.transAxes, fontsize=12, bbox={"boxstyle": "round,pad=0.3", "fc": "#FFFFFF", "ec": "#D7DEEA"})
+    ax.text(0.05, 0.93, f"RMSE = {rmse_count:.1f}", transform=ax.transAxes, fontsize=12, bbox={"boxstyle": "round,pad=0.3", "fc": "#FFFFFF", "ec": "#D7DEEA"})
     ax.legend(loc="lower right", fontsize=10)
     ax.grid(True)
     fig.tight_layout()
     fig.savefig(out_dir / "tokyo_scatter_actual_vs_pred.png", dpi=180)
+    plt.close(fig)
+
+    # 0〜25拡大散布図
+    mask = (actual_count <= 25) & (predicted_count <= 25)
+    fig, ax = plt.subplots(figsize=(5.8, 4.8))
+    ax.scatter(actual_count[mask], predicted_count[mask], color="#2D5BE3", alpha=0.35, s=18, edgecolors="none")
+    ax.plot([0, 25], [0, 25], linestyle="--", color="#DB4437", linewidth=1.5, label="y = x（完全一致）")
+    ax.set_title("実際の店舗数 vs 予測店舗数（0〜25店に拡大）", fontsize=14, fontweight="bold")
+    ax.set_xlabel("実際の店舗数")
+    ax.set_ylabel("予測店舗数")
+    ax.set_xlim(0, 25)
+    ax.set_ylim(0, 25)
+    rmse_25 = np.sqrt(np.mean((actual_count[mask] - predicted_count[mask]) ** 2))
+    ax.text(0.05, 0.93, f"RMSE = {rmse_25:.1f}（0〜25店）", transform=ax.transAxes, fontsize=12, bbox={"boxstyle": "round,pad=0.3", "fc": "#FFFFFF", "ec": "#D7DEEA"})
+    ax.legend(loc="lower right", fontsize=10)
+    ax.grid(True)
+    fig.tight_layout()
+    fig.savefig(out_dir / "tokyo_scatter_zoom25.png", dpi=180)
     plt.close(fig)
 
     # Train fresh Tokyo model (13 features) for SHAP
@@ -713,35 +730,37 @@ def build_accuracy_slide(prs: Presentation) -> None:
     set_slide_background(slide)
     add_title(slide, "6", "モデルの精度 ― 5-Fold クロスバリデーション")
 
-    # 散布図
-    add_picture_or_placeholder(slide, CHART_DIR / "tokyo_scatter_actual_vs_pred.png", Inches(0.55), Inches(0.95), Inches(5.5), Inches(4.5), "散布図画像が見つかりません")
+    # 散布図（全体）
+    add_picture_or_placeholder(slide, CHART_DIR / "tokyo_scatter_actual_vs_pred.png", Inches(0.55), Inches(0.95), Inches(4.2), Inches(3.4), "散布図画像が見つかりません")
+    # 散布図（0〜25拡大）
+    add_picture_or_placeholder(slide, CHART_DIR / "tokyo_scatter_zoom25.png", Inches(4.85), Inches(0.95), Inches(4.2), Inches(3.4), "拡大散布図が見つかりません")
 
     # なぜこの検証？
-    add_rect(slide, Inches(6.3), Inches(0.95), Inches(6.4), Inches(2.2), BLUE_LIGHT)
-    add_card_title(slide, Inches(6.55), Inches(1.1), Inches(5.8), "なぜこの検証方法？")
+    add_rect(slide, Inches(9.2), Inches(0.95), Inches(3.5), Inches(3.4), BLUE_LIGHT)
+    add_card_title(slide, Inches(9.4), Inches(1.1), Inches(3.1), "なぜこの検証方法？")
     add_paragraphs(
         slide,
-        Inches(6.55),
+        Inches(9.4),
         Inches(1.45),
-        Inches(5.9),
-        Inches(1.5),
+        Inches(3.1),
+        Inches(2.7),
         [
-            "本来は新しい時点のデータで精度を測るのが理想だが、時系列データが取れない",
-            "学習データで評価するとリーケージ（情報漏れ）になるため、店舗数の分布が均等になるよう層化分割して汎化性能を測る",
+            "新しい時点のデータで精度を測るのが理想だが、時系列データが取れない",
+            "学習データで評価するとリーケージになるため、店舗数分布が均等になるよう層化分割して汎化性能を測る",
         ],
-        font_size=13,
+        font_size=12,
         bullet=True,
     )
 
     # 具体的な方法
-    add_rect(slide, Inches(6.3), Inches(3.35), Inches(6.4), Inches(1.8), GRAY_CARD)
-    add_card_title(slide, Inches(6.55), Inches(3.5), Inches(5.8), "具体的な方法", color=GREEN)
+    add_rect(slide, Inches(0.55), Inches(4.55), Inches(6.0), Inches(2.2), GRAY_CARD)
+    add_card_title(slide, Inches(0.82), Inches(4.72), Inches(3.0), "具体的な方法", color=GREEN)
     add_paragraphs(
         slide,
-        Inches(6.55),
-        Inches(3.85),
-        Inches(5.9),
-        Inches(1.1),
+        Inches(0.82),
+        Inches(5.05),
+        Inches(5.4),
+        Inches(1.5),
         [
             "東京の4,520行を店舗数の偏りが出ないよう5グループに層化分割",
             "StratifiedKFoldで店舗数ビンが均等になるよう分割",
@@ -753,14 +772,14 @@ def build_accuracy_slide(prs: Presentation) -> None:
     )
 
     # 結果
-    add_rect(slide, Inches(6.3), Inches(5.35), Inches(6.4), Inches(1.5), BLUE_LIGHT)
-    add_card_title(slide, Inches(6.55), Inches(5.5), Inches(5.8), "結果")
+    add_rect(slide, Inches(6.75), Inches(4.55), Inches(5.95), Inches(2.2), BLUE_LIGHT)
+    add_card_title(slide, Inches(7.02), Inches(4.72), Inches(3.0), "結果")
     add_paragraphs(
         slide,
-        Inches(6.55),
-        Inches(5.85),
-        Inches(5.9),
-        Inches(0.8),
+        Inches(7.02),
+        Inches(5.05),
+        Inches(5.4),
+        Inches(1.5),
         [
             "RMSE = 5.0店（実店舗数スケール）＝ 平均で約5店の誤差",
             "中央値2店・平均4店のデータに対し、MAE = 1.6店（平均絶対誤差）",

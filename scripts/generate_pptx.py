@@ -361,6 +361,35 @@ def generate_eda_charts(out_dir: Path | str = CHART_DIR) -> Path:
     fig.savefig(out_dir / "shap_importance_top10.png", dpi=180)
     plt.close(fig)
 
+    # 人口データの欠損率（ゼロ値＝e-Stat未提供）
+    pop_cols_labels = {
+        "population": "総人口",
+        "pop_working": "労働人口",
+        "pop_adult": "成人",
+        "pop_elderly": "高齢者",
+        "households": "世帯数",
+        "single_households": "単身世帯",
+        "young_single": "若年単身",
+    }
+    zero_rates = []
+    labels = []
+    for col, label in pop_cols_labels.items():
+        if col in tokyo_df.columns:
+            rate = (tokyo_df[col] == 0).sum() / len(tokyo_df) * 100
+            zero_rates.append(rate)
+            labels.append(label)
+    fig, ax = plt.subplots(figsize=(5.2, 3.2))
+    bars = ax.barh(labels, zero_rates, color="#2D5BE3")
+    ax.set_title("人口データのゼロ値率（＝e-Stat未提供）", fontsize=13, fontweight="bold")
+    ax.set_xlabel("ゼロ値の割合 (%)")
+    ax.set_xlim(0, max(zero_rates) * 1.3 if zero_rates else 5)
+    ax.grid(True, axis="x")
+    for bar, val in zip(bars, zero_rates):
+        ax.text(val + 0.1, bar.get_y() + bar.get_height() / 2, f"{val:.1f}%", va="center", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(out_dir / "tokyo_pop_missing.png", dpi=180)
+    plt.close(fig)
+
     return out_dir
 
 
@@ -533,10 +562,14 @@ def build_eda_hist_slide(prs: Presentation) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_slide_background(slide)
     add_title(slide, "3b", "EDA ― わかったこと → モデルへの反映")
-    add_picture_or_placeholder(slide, CHART_DIR / "tokyo_histogram.png", Inches(0.55), Inches(0.95), Inches(5.2), Inches(2.9), "ヒストグラム画像が見つかりません")
-    add_rect(slide, Inches(5.95), Inches(1.0), Inches(6.75), Inches(0.95), BLUE_LIGHT)
-    add_textbox(slide, Inches(6.2), Inches(1.24), Inches(6.2), Inches(0.35), "ほとんどのエリアは店舗数1〜2軒。一部だけ100軒超。対数変換で公平に比較。", font_size=16, bold=True)
 
+    # 左上: ヒストグラム
+    add_picture_or_placeholder(slide, CHART_DIR / "tokyo_histogram.png", Inches(0.55), Inches(0.95), Inches(5.2), Inches(2.9), "ヒストグラム画像が見つかりません")
+
+    # 右上: 人口欠損率チャート
+    add_picture_or_placeholder(slide, CHART_DIR / "tokyo_pop_missing.png", Inches(5.95), Inches(0.95), Inches(6.75), Inches(2.9), "人口欠損率チャートが見つかりません")
+
+    # 左下: 気づき
     add_rect(slide, Inches(0.55), Inches(4.1), Inches(5.9), Inches(2.6), BLUE_LIGHT)
     add_card_title(slide, Inches(0.82), Inches(4.32), Inches(1.8), "気づき")
     add_paragraphs(
@@ -548,11 +581,13 @@ def build_eda_hist_slide(prs: Presentation) -> None:
         [
             "ほとんどのエリアは店舗1〜2軒、一部だけ100軒超 → データが偏っている",
             "「他ジャンルの店が多いエリア」ほど飲食店が多い → 商業集積が鍵",
+            "人口データの欠損は0.2%（5/1,233メッシュ）→ ほぼ完全に揃っている",
         ],
         font_size=14,
         bullet=True,
     )
 
+    # 右下: だからこうした
     add_rect(slide, Inches(6.6), Inches(4.1), Inches(6.1), Inches(2.6), GRAY_CARD)
     add_card_title(slide, Inches(6.87), Inches(4.32), Inches(2.0), "だからこうした", color=GREEN)
     add_paragraphs(
@@ -563,7 +598,7 @@ def build_eda_hist_slide(prs: Presentation) -> None:
         Inches(1.7),
         [
             "偏ったデータ → 対数変換（log）で公平に比較",
-            "人口データの10.1%が欠損 → ゼロ埋めしてMLモデルに含む（除外しても精度差なし）",
+            "人口データの欠損0.2% → ゼロ埋めしてMLモデルに含む（除外しても精度差なし）",
         ],
         font_size=14,
         bullet=True,
@@ -668,7 +703,7 @@ def build_feature_slide(prs: Presentation) -> None:
         font_size=11,
         col_widths=[Inches(1.8), Inches(0.8), Inches(7.0), Inches(2.6)],
     )
-    add_textbox(slide, Inches(0.65), Inches(6.45), Inches(12.0), Inches(0.35), "補足: MLは26特徴量を使用（人口系含む）。人口欠損10.1%はゼロ埋め。Optuna 100 trialでチューニング済み。", font_size=14, color=MUTED)
+    add_textbox(slide, Inches(0.65), Inches(6.45), Inches(12.0), Inches(0.35), "補足: MLは26特徴量を使用（人口系含む）。人口欠損0.2%はゼロ埋め。Optuna 100 trialでチューニング済み。", font_size=14, color=MUTED)
 
 
 def build_accuracy_slide(prs: Presentation) -> None:

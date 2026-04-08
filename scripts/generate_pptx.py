@@ -232,13 +232,6 @@ def setup_chart_style() -> None:
     )
 
 
-def compute_r2(actual: np.ndarray, predicted: np.ndarray) -> float:
-    actual_mean = actual.mean()
-    total = np.sum((actual - actual_mean) ** 2)
-    residual = np.sum((actual - predicted) ** 2)
-    return 0.0 if total == 0 else 1.0 - residual / total
-
-
 def generate_eda_charts(out_dir: Path | str = CHART_DIR) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -329,18 +322,21 @@ def generate_eda_charts(out_dir: Path | str = CHART_DIR) -> Path:
     plt.close(fig)
 
     scatter_df = tokyo_gap_df.dropna(subset=["actual_log_count", "predicted_log_count"])
-    actual = scatter_df["actual_log_count"].to_numpy()
-    predicted = scatter_df["predicted_log_count"].to_numpy()
-    r2_value = compute_r2(actual, predicted)
+    actual_count = scatter_df["restaurant_count"].to_numpy()
+    predicted_count = np.expm1(scatter_df["predicted_log_count"].to_numpy())
+    rmse_count = np.sqrt(np.mean((actual_count - predicted_count) ** 2))
+    ss_res = np.sum((actual_count - predicted_count) ** 2)
+    ss_tot = np.sum((actual_count - actual_count.mean()) ** 2)
+    r2_value = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
     fig, ax = plt.subplots(figsize=(5.8, 4.8))
-    ax.scatter(actual, predicted, color="#2D5BE3", alpha=0.35, s=18, edgecolors="none")
-    lower = min(actual.min(), predicted.min())
-    upper = max(actual.max(), predicted.max())
-    ax.plot([lower, upper], [lower, upper], linestyle="--", color="#DB4437", linewidth=1.5)
-    ax.set_title("実測 vs 予測", fontsize=14, fontweight="bold")
-    ax.set_xlabel("実測 log店舗数")
-    ax.set_ylabel("予測 log店舗数")
-    ax.text(0.05, 0.93, f"R² = {r2_value:.3f}", transform=ax.transAxes, fontsize=12, bbox={"boxstyle": "round,pad=0.3", "fc": "#FFFFFF", "ec": "#D7DEEA"})
+    ax.scatter(actual_count, predicted_count, color="#2D5BE3", alpha=0.35, s=18, edgecolors="none")
+    upper = max(actual_count.max(), predicted_count.max())
+    ax.plot([0, upper], [0, upper], linestyle="--", color="#DB4437", linewidth=1.5, label="y = x（完全一致）")
+    ax.set_title("実際の店舗数 vs 予測店舗数", fontsize=14, fontweight="bold")
+    ax.set_xlabel("実際の店舗数")
+    ax.set_ylabel("予測店舗数")
+    ax.text(0.05, 0.93, f"R² = {r2_value:.3f}  RMSE = {rmse_count:.1f}", transform=ax.transAxes, fontsize=12, bbox={"boxstyle": "round,pad=0.3", "fc": "#FFFFFF", "ec": "#D7DEEA"})
+    ax.legend(loc="lower right", fontsize=10)
     ax.grid(True)
     fig.tight_layout()
     fig.savefig(out_dir / "tokyo_scatter_actual_vs_pred.png", dpi=180)
@@ -377,7 +373,7 @@ def build_cover_slide(prs: Presentation) -> None:
     add_textbox(slide, Inches(0.95), Inches(2.3), Inches(11), Inches(0.45), "Market Gap Finder", font_size=20, color=BLUE, bold=True)
     add_textbox(slide, Inches(0.95), Inches(3.15), Inches(11), Inches(0.7), "「どこに出店すればいいか？」をデータで答える", font_size=24, color=TEXT, bold=True)
     add_textbox(slide, Inches(0.95), Inches(4.45), Inches(8), Inches(0.35), "Vibe Coding with Claude Code + Codex MCP", font_size=14, color=MUTED)
-    add_textbox(slide, Inches(0.95), Inches(4.82), Inches(8), Inches(0.35), "2026-04-02", font_size=14, color=MUTED)
+    add_textbox(slide, Inches(0.95), Inches(4.82), Inches(8), Inches(0.35), "2026-04-08", font_size=14, color=MUTED)
 
 
 def build_problem_slide(prs: Presentation) -> None:
@@ -460,7 +456,7 @@ def build_data_slide(prs: Presentation) -> None:
 
     add_rect(slide, Inches(6.75), Inches(5.45), Inches(6.0), Inches(1.2), GRAY_CARD)
     add_card_title(slide, Inches(7.05), Inches(5.62), Inches(2.0), "対象ジャンル", color=BLUE)
-    add_textbox(slide, Inches(7.05), Inches(5.95), Inches(5.5), Inches(0.45), "カフェ / ラーメン / 居酒屋 / 焼肉 / 和食 / 中華 / イタリアン / カレー / その他", font_size=14, bold=True)
+    add_textbox(slide, Inches(7.05), Inches(5.95), Inches(5.5), Inches(0.45), "カフェ / ラーメン / 居酒屋 / 焼肉 / 和食 / 中華 / イタリアン / その他", font_size=14, bold=True)
 
 
 def build_mesh_slide(prs: Presentation) -> None:
@@ -567,7 +563,7 @@ def build_eda_hist_slide(prs: Presentation) -> None:
         Inches(1.7),
         [
             "偏ったデータ → 対数変換（log）で公平に比較",
-            "人口データの76.7%が欠損 → 検証の結果MLモデルからは除外（精度向上）",
+            "人口データの10.1%が欠損 → ゼロ埋めしてMLモデルに含む（除外しても精度差なし）",
         ],
         font_size=14,
         bullet=True,
@@ -575,87 +571,84 @@ def build_eda_hist_slide(prs: Presentation) -> None:
     )
 
 
-def build_score_concept_slide(prs: Presentation) -> None:
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_slide_background(slide)
-    add_title(slide, "4a", "スコアの考え方")
-    add_rect(slide, Inches(0.65), Inches(1.0), Inches(12.0), Inches(1.0), BLUE_LIGHT)
-    add_textbox(slide, Inches(0.95), Inches(1.27), Inches(11.3), Inches(0.35), "出店チャンス = ①その街に店が足りない + ②人が集まる場所 − ③ライバルが多すぎる", font_size=21, bold=True, align=PP_ALIGN.CENTER)
-
-    cards = [
-        (Inches(0.8), "① 店が足りない", "ジャンル別ギャップ(×1.49)\nそのジャンルの全メッシュ平均\nlog店舗数と比較し少なければ加点\n\nジャンル集中度(×0.07)\n特定ジャンルに偏っていれば加点", BLUE_LIGHT, BLUE),
-        (Inches(4.55), "② 人が集まる", "他ジャンル店舗数(×2.71)\nカフェ以外の飲食店が多い\n＝商業集積があり集客力が高い\n\nGoogle評価(×0.31)\nエリアの評判が高ければ加点", GRAY_CARD, GREEN),
-        (Inches(8.3), "③ ライバル過多", "飽和度(×0.15)\n人口あたり店舗数が\n多すぎれば減点\n\n近隣競合(×0.05)\n周囲メッシュの平均店舗数が\n多ければ減点", BLUE_LIGHT, RED),
-    ]
-    for left, title, body, fill, accent in cards:
-        add_rect(slide, left, Inches(2.25), Inches(3.2), Inches(3.55), fill)
-        add_textbox(slide, left + Inches(0.2), Inches(2.55), Inches(2.8), Inches(0.35), title, font_size=18, bold=True, color=accent, align=PP_ALIGN.CENTER)
-        add_textbox(slide, left + Inches(0.2), Inches(3.05), Inches(2.8), Inches(2.5), body, font_size=13, color=TEXT, align=PP_ALIGN.CENTER)
-
-    add_rect(slide, Inches(0.8), Inches(6.1), Inches(10.7), Inches(0.9), GRAY_CARD)
-    add_textbox(slide, Inches(1.05), Inches(6.18), Inches(10.2), Inches(0.6), "各指標は0〜1に正規化（ジャンルギャップのみlog店舗数の差分）。(×数値)はOptunaで自動最適化した重み。他ジャンル店舗数(2.71)が最も重い＝商業集積がスコアを最も左右する。", font_size=14, align=PP_ALIGN.CENTER)
-
-
 def build_approach_slide(prs: Presentation) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_slide_background(slide)
-    add_title(slide, "4b", "2つのアプローチを組み合わせる")
+    add_title(slide, "4", "アプローチ ― MLで市場ギャップを予測")
 
-    add_rect(slide, Inches(0.55), Inches(1.0), Inches(5.95), Inches(2.5), BLUE_LIGHT)
-    add_card_title(slide, Inches(0.85), Inches(1.22), Inches(3.4), "スコア計算（前スライドの考え方）")
+    # 目的変数の説明
+    add_rect(slide, Inches(0.55), Inches(1.0), Inches(12.2), Inches(1.6), BLUE_LIGHT)
+    add_card_title(slide, Inches(0.85), Inches(1.18), Inches(3.0), "目的変数（何を予測するか）")
     add_paragraphs(
         slide,
         Inches(0.85),
-        Inches(1.62),
-        Inches(5.25),
-        Inches(1.4),
+        Inches(1.55),
+        Inches(11.5),
+        Inches(0.8),
         [
-            "①店が足りない + ②人が集まる − ③ライバル過多 の3観点を重み付け合算",
-            "6要素の重みをOptuna（自動最適化）で調整",
+            "log1p(restaurant_count) ＝ 各メッシュ×ジャンルの飲食店数を対数変換した値",
+            "対数変換する理由: 店舗数は0〜100超まで偏りが大きく、そのままでは少数の密集エリアに引きずられるため",
         ],
         font_size=15,
         bullet=True,
     )
 
-    add_rect(slide, Inches(6.8), Inches(1.0), Inches(5.95), Inches(2.5), GRAY_CARD)
-    add_card_title(slide, Inches(7.1), Inches(1.22), Inches(3.2), "ML予測（LightGBM = 高速な機械学習手法）", color=GREEN)
+    # 左カード: 特徴量（入力）
+    add_rect(slide, Inches(0.55), Inches(2.85), Inches(5.95), Inches(2.3), GRAY_CARD)
+    add_card_title(slide, Inches(0.85), Inches(3.05), Inches(3.4), "説明変数（28特徴量）", color=GREEN)
     add_paragraphs(
         slide,
-        Inches(7.1),
-        Inches(1.62),
-        Inches(5.15),
+        Inches(0.85),
+        Inches(3.45),
+        Inches(5.25),
         Inches(1.4),
         [
-            "28特徴量から「本来何軒あるべきか」を予測",
-            "予測値 − 実測値 = 市場ギャップ",
+            "人口・世帯構成（11）、競合環境（4）、駅アクセス（3）",
+            "地価・Google評価（4）、ジャンル関連（4）、交互作用（2）",
         ],
         font_size=15,
         bullet=True,
         bullet_color=GREEN,
     )
 
+    # 右カード: 予測→ギャップ
+    add_rect(slide, Inches(6.8), Inches(2.85), Inches(5.95), Inches(2.3), BLUE_LIGHT)
+    add_card_title(slide, Inches(7.1), Inches(3.05), Inches(3.2), "市場ギャップの算出")
+    add_paragraphs(
+        slide,
+        Inches(7.1),
+        Inches(3.45),
+        Inches(5.25),
+        Inches(1.4),
+        [
+            "LightGBMで「本来何軒あるべきか」を予測",
+            "予測値 − 実測値 = 市場ギャップ（大きい＝出店チャンス）",
+        ],
+        font_size=15,
+        bullet=True,
+    )
+
+    # 下部: スコアバージョン比較テーブル
     add_table(
         slide,
-        Inches(1.1),
-        Inches(4.1),
-        Inches(11.15),
-        Inches(1.85),
+        Inches(0.85),
+        Inches(5.45),
+        Inches(11.5),
+        Inches(1.45),
         [
-            ["", "スコア計算(v3b)", "ML Gap(v5)", "アンサンブル(v4)"],
-            ["特徴", "解釈しやすい", "精度が高い", "両方の長所"],
-            ["弱点", "非線形パターンを見逃す", "ブラックボックス", "—"],
-            ["一致度", "—", "—", "Spearman相関 = 0.572"],
+            ["", "ML予測のみ（デフォルト）", "ルールベース", "両方の組み合わせ"],
+            ["方式", "ML予測ギャップをrank正規化", "6要素の重み付け合算", "ルール×0.6 + ML×0.4"],
+            ["特徴", "精度が高い・シンプル", "解釈しやすい", "両方の長所"],
         ],
-        font_size=12,
-        col_widths=[Inches(1.5), Inches(2.8), Inches(2.6), Inches(4.25)],
+        font_size=11,
+        col_widths=[Inches(1.2), Inches(3.8), Inches(3.2), Inches(3.3)],
     )
-    add_textbox(slide, Inches(1.15), Inches(6.15), Inches(11.0), Inches(0.35), "現在はv5（ML Gapのみ）をデフォルト採用。v4（アンサンブル）も選択可能", font_size=16, bold=True, color=RED)
 
 
 def build_feature_slide(prs: Presentation) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_slide_background(slide)
-    add_title(slide, "5a", "モデルに入れたデータ（特徴量）")
+    add_title(slide, "5", "モデルに入れたデータ（説明変数）")
     add_textbox(slide, Inches(0.65), Inches(0.95), Inches(12.0), Inches(0.4), "特徴量 = 「予測のヒントになるデータ」。人間が出店判断で見る情報を数値化したもの。", font_size=17, bold=True)
     add_table(
         slide,
@@ -681,7 +674,7 @@ def build_feature_slide(prs: Presentation) -> None:
 def build_accuracy_slide(prs: Presentation) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_slide_background(slide)
-    add_title(slide, "5b", "モデルの精度 ― 5-Fold クロスバリデーション")
+    add_title(slide, "6", "モデルの精度 ― 5-Fold クロスバリデーション")
 
     # 散布図
     add_picture_or_placeholder(slide, CHART_DIR / "tokyo_scatter_actual_vs_pred.png", Inches(0.55), Inches(0.95), Inches(5.5), Inches(4.5), "散布図画像が見つかりません")
@@ -696,8 +689,8 @@ def build_accuracy_slide(prs: Presentation) -> None:
         Inches(5.9),
         Inches(1.5),
         [
-            "本来はモデル構築後に新しい時点のデータで精度を測るのが理想だが、時系列データが取れない",
-            "学習データで評価するとリーケージ（情報漏れ）になるため、空間的に分割して未知のエリアに対する予測力を測る",
+            "本来は新しい時点のデータで精度を測るのが理想だが、時系列データが取れない",
+            "学習データで評価するとリーケージ（情報漏れ）になるため、店舗数の分布が均等になるよう層化分割して汎化性能を測る",
         ],
         font_size=13,
         bullet=True,
@@ -732,8 +725,8 @@ def build_accuracy_slide(prs: Presentation) -> None:
         Inches(5.9),
         Inches(0.8),
         [
-            "R²=0.787（平均）＝飲食店数のばらつきの約79%を説明できる",
-            "RMSE=0.329（対数スケール上の平均誤差）",
+            "RMSE = 5.0店（実店舗数スケール）＝ 平均で約5店の誤差",
+            "中央値2店・平均4店のデータに対し、MAE = 1.6店（平均絶対誤差）",
         ],
         font_size=13,
         bullet=True,
@@ -743,7 +736,7 @@ def build_accuracy_slide(prs: Presentation) -> None:
 def build_shap_slide(prs: Presentation) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_slide_background(slide)
-    add_title(slide, "5c", "何が予測に効いているか（SHAP）")
+    add_title(slide, "7", "何が予測に効いているか（SHAP）")
     add_picture_or_placeholder(slide, CHART_DIR / "shap_importance_top10.png", Inches(0.65), Inches(1.0), Inches(7.1), Inches(5.7), "SHAP画像が見つかりません")
     add_rect(slide, Inches(8.0), Inches(1.0), Inches(4.7), Inches(5.7), GRAY_CARD)
     add_card_title(slide, Inches(8.25), Inches(1.28), Inches(2.2), "解釈", color=RED)
@@ -767,7 +760,7 @@ def build_shap_slide(prs: Presentation) -> None:
 def build_result_slide(prs: Presentation) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_slide_background(slide)
-    add_title(slide, "6", "課題点とうまくいった点")
+    add_title(slide, "8", "課題点とうまくいった点")
     add_rect(slide, Inches(0.7), Inches(1.0), Inches(5.85), Inches(5.8), BLUE_LIGHT)
     add_card_title(slide, Inches(0.98), Inches(1.25), Inches(2.8), "うまくいった点", color=GREEN)
     add_paragraphs(
@@ -777,9 +770,9 @@ def build_result_slide(prs: Presentation) -> None:
         Inches(5.2),
         Inches(4.7),
         [
-            "R²=0.787: 飲食店数の約79%を説明",
+            "RMSE = 5.0店: 実店舗数スケールで平均約5店の誤差",
             "28特徴量（人口含む）でOptuna 100 trialチューニング",
-            "v5（ML Gapのみ）でシンプルかつ高精度なスコアリング",
+            "ML予測のみでシンプルかつ高精度なスコアリング",
         ],
         font_size=16,
         bullet=True,
@@ -806,7 +799,7 @@ def build_result_slide(prs: Presentation) -> None:
 def build_business_slide(prs: Presentation) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_slide_background(slide)
-    add_title(slide, "7", "ビジネスインパクト")
+    add_title(slide, "9", "ビジネスインパクト")
     add_rect(slide, Inches(0.65), Inches(0.95), Inches(12.0), Inches(0.95), BLUE_LIGHT)
     add_textbox(slide, Inches(0.95), Inches(1.23), Inches(11.3), Inches(0.32), "「どの街に、どのジャンルの店が足りないか」を自動で見つけて、根拠付きで推薦する", font_size=19, bold=True)
 
@@ -820,7 +813,7 @@ def build_business_slide(prs: Presentation) -> None:
         Inches(3.5),
         [
             "東京都内の未出店エリアを、既存データだけで事前評価",
-            "東京1,233メッシュ × 9ジャンル = 約11,000パターンの候補を一括で洗い出し",
+            "東京1,233メッシュ × 8ジャンル = 約9,800パターンの候補を一括で洗い出し",
         ],
         font_size=15,
         bullet=True,
@@ -848,7 +841,7 @@ def build_business_slide(prs: Presentation) -> None:
 def build_vibe_slide(prs: Presentation) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_slide_background(slide)
-    add_title(slide, "8", "Vibe Codingの所感")
+    add_title(slide, "10", "Vibe Codingの所感")
     add_rect(slide, Inches(0.65), Inches(0.95), Inches(12.0), Inches(1.15), BLUE_LIGHT)
     add_textbox(slide, Inches(0.92), Inches(1.18), Inches(11.4), Inches(0.72), "自分の知識だけではここまでのモデルは作れなかった。AIが知識を補完してくれたからこそ、作りたいシステムを形にできた。ただしAIの提案を鵜呑みにしない判断力が不可欠。", font_size=17, bold=True)
 
@@ -861,7 +854,7 @@ def build_vibe_slide(prs: Presentation) -> None:
         Inches(5.2),
         Inches(2.7),
         [
-            "6種API+28特徴量ML+ダッシュボードを一人で構築",
+            "6種API + 28特徴量ML + 5エリア対応ダッシュボードを一人で構築",
             "知らなかった手法をAIが提案→知識の補完",
             "設計→実装→テストのサイクルが速く回せた",
         ],
@@ -892,7 +885,7 @@ def build_vibe_slide(prs: Presentation) -> None:
 def build_summary_slide(prs: Presentation) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_slide_background(slide)
-    add_title(slide, "9", "まとめ")
+    add_title(slide, "11", "まとめ")
     add_table(
         slide,
         Inches(0.8),
@@ -902,10 +895,10 @@ def build_summary_slide(prs: Presentation) -> None:
         [
             ["項目", "内容"],
             ["課題", "出店判断の基準をデータで統一・定量化"],
-            ["データ", "6種の公開データ × 東京 × 9ジャンル"],
+            ["データ", "6種の公開データ × 東京 × 8ジャンル"],
             ["EDA", "商業集積が飲食店数を決める要因と判明"],
-            ["手法", "スコア計算 + MLの組み合わせ"],
-            ["性能", "5-Fold CV R²=0.787（東京エリア、層化分割、Optunaチューニング済み）"],
+            ["手法", "LightGBM による市場ギャップ予測"],
+            ["性能", "5-Fold CV RMSE=5.0店（東京エリア、層化分割、Optunaチューニング済み）"],
             ["活用", "東京都内の出店候補・ジャンル戦略をデータで裏付け"],
             ["開発", "AIと人間の判断力の掛け算で実現"],
         ],
@@ -926,7 +919,6 @@ def build_presentation() -> Path:
     build_mesh_slide(prs)
     build_eda_map_slide(prs)
     build_eda_hist_slide(prs)
-    build_score_concept_slide(prs)
     build_approach_slide(prs)
     build_feature_slide(prs)
     build_accuracy_slide(prs)
@@ -949,4 +941,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

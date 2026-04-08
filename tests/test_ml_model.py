@@ -106,37 +106,49 @@ class TestTrainCv:
         assert result["fold_predictions"].shape == (len(ml_df), 2)
         assert np.any(result["fold_predictions"] != 0)
 
-    def test_train_cv_uses_group_kfold_when_group_col_exists(self, ml_df: pd.DataFrame, monkeypatch: pytest.MonkeyPatch) -> None:
-        called = {"groups": None}
+    def test_train_cv_uses_stratified_kfold_bins(self, ml_df: pd.DataFrame, monkeypatch: pytest.MonkeyPatch) -> None:
+        """restaurant_count の層化ビンを使って分割することを検証する。"""
+        called = {"bins": None}
 
-        class DummyGroupKFold:
-            def __init__(self, n_splits: int) -> None:
+        class DummyStratifiedKFold:
+            """StratifiedKFold の呼び出し引数を記録するダミー。"""
+
+            def __init__(self, n_splits: int, shuffle: bool, random_state: int) -> None:
                 self.n_splits = n_splits
+                self.shuffle = shuffle
+                self.random_state = random_state
 
-            def split(self, X: pd.DataFrame, y: pd.Series | None = None, groups: pd.Series | None = None):
-                called["groups"] = groups
+            def split(self, X: pd.DataFrame, y: pd.Series | None = None):
+                called["bins"] = y
                 yield np.array([0, 1, 2, 3]), np.array([4, 5])
                 yield np.array([2, 3, 4, 5]), np.array([0, 1])
 
-        monkeypatch.setattr("src.analyze.ml_model.GroupKFold", DummyGroupKFold)
+        monkeypatch.setattr("src.analyze.ml_model.StratifiedKFold", DummyStratifiedKFold)
         result = train_cv(ml_df, n_splits=2, num_rounds=5)
-        assert called["groups"] is not None
-        assert set(called["groups"].astype(str)) == {"m1", "m2", "m3"}
+        assert called["bins"] is not None
+        assert set(pd.Series(called["bins"]).dropna().unique()) <= {0, 1}
         assert len(result["oof_predictions"]) == len(ml_df)
 
-    def test_train_cv_falls_back_to_kfold_without_group_col(self, ml_df: pd.DataFrame, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_train_cv_uses_stratified_kfold_without_mesh_col(
+        self, ml_df: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """メッシュ列がなくても層化分割を使うことを検証する。"""
         called = {"used": False}
 
-        class DummyKFold:
+        class DummyStratifiedKFold:
+            """StratifiedKFold の利用有無を記録するダミー。"""
+
             def __init__(self, n_splits: int, shuffle: bool, random_state: int) -> None:
                 self.n_splits = n_splits
+                self.shuffle = shuffle
+                self.random_state = random_state
 
-            def split(self, X: pd.DataFrame, y: pd.Series | None = None, groups: pd.Series | None = None):
+            def split(self, X: pd.DataFrame, y: pd.Series | None = None):
                 called["used"] = True
                 yield np.array([0, 1, 2, 3]), np.array([4, 5])
                 yield np.array([2, 3, 4, 5]), np.array([0, 1])
 
-        monkeypatch.setattr("src.analyze.ml_model.KFold", DummyKFold)
+        monkeypatch.setattr("src.analyze.ml_model.StratifiedKFold", DummyStratifiedKFold)
         result = train_cv(ml_df.drop(columns=["jis_mesh"]), n_splits=2, num_rounds=5)
         assert called["used"] is True
         assert len(result["oof_predictions"]) == len(ml_df)
@@ -342,7 +354,6 @@ class TestTuneHyperparams:
             n_splits: int = 5,
             params: dict | None = None,
             num_rounds: int = 300,
-            group_col: str = "jis_mesh",
             target_mode: str = "raw",
         ) -> dict:
             calls.append(
@@ -350,7 +361,6 @@ class TestTuneHyperparams:
                     "n_splits": n_splits,
                     "params": params,
                     "num_rounds": num_rounds,
-                    "group_col": group_col,
                     "target_mode": target_mode,
                 }
             )
@@ -366,7 +376,7 @@ class TestTuneHyperparams:
         monkeypatch.setattr("src.analyze.ml_model.optuna", DummyOptuna())
         monkeypatch.setattr("src.analyze.ml_model.train_cv", fake_train_cv)
 
-        result = tune_hyperparams(ml_df, n_trials=3, n_splits=2, group_col="jis_mesh")
+        result = tune_hyperparams(ml_df, n_trials=3, n_splits=2)
 
         assert result["best_params"] == {
             "num_leaves": 31,
@@ -383,5 +393,4 @@ class TestTuneHyperparams:
         assert result["best_r2"] == pytest.approx(0.789)
         assert len(calls) == 2
         assert calls[0]["n_splits"] == 2
-        assert calls[0]["group_col"] == "jis_mesh"
         assert calls[0]["num_rounds"] == 120

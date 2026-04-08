@@ -13,24 +13,40 @@ try:
 except ImportError:  # pragma: no cover - exercised in runtime environments without Optuna installed
     optuna = None
 from sklearn.metrics import r2_score, root_mean_squared_error
-from sklearn.model_selection import GroupKFold, KFold
+from sklearn.model_selection import KFold, StratifiedKFold
 
 from config import settings
-from src.analyze.utils import mesh_col as _mesh_col
 
 logger = logging.getLogger(__name__)
 
 DEMAND_FEATURES = [
+    "population",
+    "pop_working",
+    "households",
+    "neighbor_avg_population",
     "nearest_station_passengers",
     "land_price",
     "nearest_station_distance",
 ]
 NUMERIC_FEATURES = [
+    "population",
+    "pop_working",
+    "pop_adult",
+    "pop_elderly",
+    "households",
+    "single_households",
+    "young_single",
+    "working_ratio",
+    "elderly_ratio",
+    "single_ratio",
+    "young_single_ratio",
     "genre_diversity",
     "genre_hhi",
     "other_genre_count",
     "commercial_density_rank",
     "neighbor_avg_restaurants",
+    "neighbor_avg_population",
+    "saturation_index",
     "nearest_station_distance",
     "nearest_station_passengers",
     "station_accessibility",
@@ -53,15 +69,18 @@ DEFAULT_PARAMS = {
     "objective": "regression",
     "metric": "rmse",
     "boosting_type": "gbdt",
-    "num_leaves": 31,
-    "learning_rate": 0.05,
-    "feature_fraction": 0.8,
-    "bagging_fraction": 0.8,
-    "bagging_freq": 5,
+    "num_leaves": 45,
+    "learning_rate": 0.075,
+    "min_child_samples": 5,
+    "feature_fraction": 0.535,
+    "bagging_fraction": 0.996,
+    "bagging_freq": 3,
+    "lambda_l1": 0.786,
+    "lambda_l2": 0.796,
     "verbose": -1,
     "seed": 42,
 }
-DEFAULT_NUM_ROUNDS = 300
+DEFAULT_NUM_ROUNDS = 457
 DEFAULT_EARLY_STOPPING = 30
 
 
@@ -108,6 +127,10 @@ def prepare_features(df: pd.DataFrame, target_mode: str = "raw") -> tuple[pd.Dat
         work["price_x_saturation"] = work["land_price"] * work["saturation_index"]
         feature_cols.append("price_x_saturation")
 
+    if "population" in feature_cols and "nearest_station_distance" in feature_cols:
+        work["pop_x_station_dist"] = work["population"] * work["nearest_station_distance"]
+        feature_cols.append("pop_x_station_dist")
+
     return work[feature_cols].copy(), target
 
 
@@ -116,7 +139,6 @@ def train_cv(
     n_splits: int = 5,
     params: dict | None = None,
     num_rounds: int = DEFAULT_NUM_ROUNDS,
-    group_col: str = "jis_mesh",
     # Optuna検証: フィルタなしが R2 最良 (0.8028)。閾値 pop<4000&rc>200 は実質0件除外
     filter_outliers: bool = False,
     target_mode: str = "raw",
@@ -137,21 +159,17 @@ def train_cv(
     features, target = prepare_features(work, target_mode=target_mode)
     logger.info("Training CV model with %d rows and %d features", features.shape[0], features.shape[1])
 
-    groups = None
-    splitter: GroupKFold | KFold
-    resolved_group_col = group_col if group_col in work.columns else _mesh_col(work)
-    if resolved_group_col in work.columns:
-        groups = work[resolved_group_col]
-        splitter = GroupKFold(n_splits=n_splits)
-    else:
-        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+    # restaurant_count をビン分割して層化
+    rc = pd.to_numeric(work[TARGET_COL], errors="coerce").fillna(0)
+    bins = pd.qcut(rc, q=min(10, n_splits), labels=False, duplicates="drop")
+    splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
 
     shuffled_oof_predictions = np.zeros(len(work))
     shuffled_fold_predictions = np.zeros((len(work), n_splits))
     fold_metrics = []
     feature_importance_list = []
 
-    for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(features, groups=groups), 1):
+    for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(features, bins), 1):
         X_train = features.iloc[train_idx]
         y_train = target.iloc[train_idx]
         X_val = features.iloc[val_idx]
@@ -244,7 +262,6 @@ def tune_hyperparams(
     df: pd.DataFrame,
     n_trials: int = 50,
     n_splits: int = 5,
-    group_col: str = "jis_mesh",
 ) -> dict:
     """Optunaでハイパーパラメータを最適化する。"""
     if optuna is None:
@@ -269,7 +286,6 @@ def tune_hyperparams(
             n_splits=n_splits,
             params=params,
             num_rounds=num_rounds,
-            group_col=group_col,
         )
         trial.set_user_attr("avg_r2", cv_results["avg_r2"])
         return float(cv_results["avg_rmse"])
@@ -284,7 +300,6 @@ def tune_hyperparams(
         n_splits=n_splits,
         params=best_params,
         num_rounds=best_num_rounds,
-        group_col=group_col,
     )
 
     return {
@@ -381,85 +396,6 @@ def compare_with_v3(df: pd.DataFrame) -> pd.DataFrame:
     out["rank_diff"] = out["rank_v3"] - out["rank_ml"]
     return out
 
-
-def train_cross_area(
-    train_tags: list[str],
-    test_tag: str,
-    params: dict | None = None,
-    num_rounds: int = DEFAULT_NUM_ROUNDS,
-) -> dict:
-    """Train on multiple areas and evaluate on a separate area."""
-    params = {**DEFAULT_PARAMS, **(params or {})}
-
-    train_frames = []
-    for tag in train_tags:
-        path = settings.PROCESSED_DATA_DIR / f"{tag}_integrated.csv"
-        if not path.exists():
-            raise FileNotFoundError(path)
-        train_frames.append(pd.read_csv(path))
-
-    test_path = settings.PROCESSED_DATA_DIR / f"{test_tag}_integrated.csv"
-    if not test_path.exists():
-        raise FileNotFoundError(test_path)
-
-    train_df = pd.concat(train_frames, ignore_index=True)
-    test_df = pd.read_csv(test_path)
-
-    train_features, train_target = prepare_features(train_df)
-    test_features, test_target = prepare_features(test_df)
-
-    categorical_features = ["genre_encoded"] if "genre_encoded" in train_features.columns else []
-    model = lgb.train(
-        params,
-        lgb.Dataset(train_features, label=train_target, categorical_feature=categorical_features),
-        num_boost_round=num_rounds,
-    )
-    predictions = model.predict(test_features)
-
-    feature_importance = pd.DataFrame(
-        {
-            "feature": train_features.columns,
-            "importance": model.feature_importance(importance_type="gain"),
-        }
-    ).sort_values("importance", ascending=False, ignore_index=True)
-
-    return {
-        "train_tags": train_tags,
-        "test_tag": test_tag,
-        "rmse": root_mean_squared_error(test_target, predictions),
-        "r2": r2_score(test_target, predictions),
-        "predictions": predictions,
-        "actual": test_target.to_numpy(),
-        "feature_importance": feature_importance,
-        "model": model,
-    }
-
-
-def train_leave_one_area_out(
-    tags: list[str],
-    params: dict | None = None,
-    num_rounds: int = DEFAULT_NUM_ROUNDS,
-) -> dict:
-    """Leave-One-Area-Out CVで全エリアの汎化性能を測定する。"""
-    params = {**DEFAULT_PARAMS, **(params or {})}
-    area_results = []
-    for test_tag in tags:
-        train_tags = [t for t in tags if t != test_tag]
-        result = train_cross_area(train_tags, test_tag, params, num_rounds)
-        area_results.append(
-            {
-                "test_area": test_tag,
-                "rmse": result["rmse"],
-                "r2": result["r2"],
-            }
-        )
-        logger.info("LOAO %s: RMSE=%.4f, R2=%.4f", test_tag, result["rmse"], result["r2"])
-
-    return {
-        "area_results": area_results,
-        "avg_rmse": float(np.mean([r["rmse"] for r in area_results])),
-        "avg_r2": float(np.mean([r["r2"] for r in area_results])),
-    }
 
 
 def save_model(model: lgb.Booster, tag: str) -> Path:

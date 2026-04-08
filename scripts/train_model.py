@@ -19,7 +19,6 @@ from src.analyze.ml_model import (
     save_model,
     train_cv,
     train_full_model,
-    train_leave_one_area_out,
     tune_hyperparams,
 )
 from src.analyze.scoring import compute_opportunity_score_v3b
@@ -36,7 +35,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-n", type=int, default=20, help="Number of top rows to display.")
     parser.add_argument("--folds", type=int, default=5, help="Number of CV folds.")
     parser.add_argument("--tune", action="store_true", help="Run Optuna hyperparameter tuning before training.")
-    parser.add_argument("--loao", action="store_true", help="Run Leave-One-Area-Out CV for combined training.")
     parser.add_argument(
         "--two-stage",
         action="store_true",
@@ -229,20 +227,6 @@ def main() -> int:
             target_mode=target_mode,
         )
         print_cv_results(cv_results)
-
-        if args.loao and args.combined and len(available_tags) >= 2:
-            loao_results = train_leave_one_area_out(
-                available_tags,
-                params=best_params,
-                num_rounds=best_num_rounds or 300,
-            )
-            print("=" * 60)
-            print("Leave-One-Area-Out CV Results")
-            print("=" * 60)
-            for result in loao_results["area_results"]:
-                print(f"  {result['test_area']:10s}: RMSE={result['rmse']:.4f}, R2={result['r2']:.4f}")
-            print(f"  {'Average':10s}: RMSE={loao_results['avg_rmse']:.4f}, R2={loao_results['avg_r2']:.4f}")
-            print()
 
         print_feature_importance(cv_results["feature_importance"], section_no=3 if args.tune else 2)
 

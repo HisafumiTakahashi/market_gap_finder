@@ -59,6 +59,8 @@ desktop.ini
 # データファイル（生データは除外、keepfileは追跡）
 data/raw/*
 data/processed/*
+!data/processed/*_integrated.csv
+!data/processed/*_ml_gap.csv
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 

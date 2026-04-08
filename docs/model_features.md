@@ -1,67 +1,95 @@
 # Market Gap Finder モデル特徴量詳細
 
-本ドキュメントでは、機械学習モデル（LightGBM）に入力されている具体的な特徴群と、特定の需要指標（人口や昼間人口）のデータ取得元およびシステム内での扱いについて解説します。
+本ドキュメントは、現在の機械学習モデルで実際に使っている特徴量と、人口系データの扱いを整理したものです。
 
 ---
 
-## 1. 特徴量のカテゴリと詳細
+## 1. 現在のMLモデル特徴量
 
-モデルは単なる人口統計だけでなく、競合の密集度合いや、街の地価、周辺との力関係まで多角的なデータを学習しています。
+MLモデルは **28特徴量** を使用します。
 
-### 需要に関する特徴量（人口・世帯）
-e-Stat（国勢調査）などから取得した、そのエリアの基本的な集客ポテンシャルを示すデータです。
-* `population`: 総人口
-* `pop_working`: 昼間/就業人口の代替（15～64歳の生産年齢人口）
-* `pop_adult`: 20歳以上人口（アルコール需要など）
-* `pop_elderly`: 65歳以上人口（和食・シニア需要など）
-* `households`: 世帯数
-* `single_households`: 単身世帯数（ファストフード、お一人様需要）
-* `young_single`: 若年単身者層の数
-* **各種比率データ**: `working_ratio`, `single_ratio`, `young_single_ratio` など、絶対数ではなくそのエリアの特性（カラー）を示すデータ
+### 人口・世帯
+- `population` (`log1p` 変換)
+- `pop_working` (`log1p` 変換)
+- `pop_adult` (`log1p` 変換)
+- `pop_elderly` (`log1p` 変換)
+- `households` (`log1p` 変換)
+- `single_households` (`log1p` 変換)
+- `young_single` (`log1p` 変換)
 
-### 供給・競合に関する特徴量
-周辺の飲食店がどのような状況になっているかを示すデータです。
-* `saturation_index`: 飲食店の飽和度
-* `genre_diversity`: そのメッシュ内にある飲食店のジャンル多様性
-* `genre_hhi`: ジャンルの独占度（HHI）
-* `neighbor_avg_restaurants`: すぐ隣接するメッシュにあたる近隣の平均店舗数
-* `google_density`: Google検索等に基づく店舗密度
-* `google_avg_rating`: Googleの平均評価点
-* `reviews_per_shop`: 1店舗あたりの平均レビュー件数
+### 人口比率
+- `working_ratio`
+- `elderly_ratio`
+- `single_ratio`
+- `young_single_ratio`
 
-### 空間・経済に関する特徴量
-地理的なアクセスや出店コストに関連するデータです。
-* `nearest_station_distance`: 最寄り駅からの距離
-* `nearest_station_passengers`: 最寄り駅の乗降客数
-* `station_accessibility`: 駅への総合的なアクセス性
-* `land_price`: 地価（国土数値情報の地価公示データに基づく出店コスト障壁）
-* `commercial_density_rank`: 商業集積度ランク
+### 競合構造
+- `genre_diversity`
+- `genre_hhi`
+- `other_genre_count` (`log1p` 変換)
+- `commercial_density_rank`
+- `saturation_index`
+
+### 近隣
+- `neighbor_avg_restaurants` (`log1p` 変換)
+- `neighbor_avg_population` (`log1p` 変換)
+
+### 駅
+- `nearest_station_distance`
+- `nearest_station_passengers`
+- `station_accessibility` (`log1p` 変換)
+
+### 地価
+- `land_price` (`log1p` 変換)
+
+### Google
+- `google_avg_rating`
+- `reviews_per_shop`
+- `google_density`
 
 ### カテゴリカル特徴量
-* `unified_genre`: 対象としている飲食ジャンル（居酒屋、カフェなど）
+- `genre_encoded` (`unified_genre`)
 
-### モデル内で動的に合成される特徴量（相互作用）
-* `price_x_saturation` (地価 × 飽和度): 出店ハードル（コストと競合の掛け合わせ）
-* `pop_x_station_dist` (人口 × 駅距離): ロードサイドや住宅街需要とアクセスの掛け合わせ
+### モデル内で動的に合成される特徴量
+- `price_x_saturation`: 地価(log) × 飽和度
+- `pop_x_station_dist`: 人口(log) × 駅距離
 
 ---
 
 ## 2. 人口データの取得元と利用方法
 
-需要のコアとなる「人口」や「世帯数」については、政府統計の総合窓口「e-Stat」のオープンデータ（国勢調査データ）をAPI経由で取得して使用しています。
+人口・世帯データは **e-Stat API** から取得して統合データに保持します。
 
-* **データの粒度**: 大ざっぱな市区町村単位ではなく、「3次メッシュ（約1km四方）」の区画データを取得し、それを独自の500mメッシュに変換してピンポイントな商圏分析に用いています。
-* **比率変換による学習**: 「総人口」という絶対数だけでなく、データの集計プロセスで自動的に「単身者比率」や「若年比率」といった割合データに変換され、モデルに入力されます。
+### 現在の利用先
+- **MLモデル**: 使用する
+- **v2 / v3 / v3b のルールベーススコアリング**: 使用する
+- **分析用データセット / 比較検証 / 将来拡張**: 使用する
+
+### 欠損の扱い
+- 東京エリアの人口欠損率は **10.1%**
+- fallback補完は使わず、欠損値は **ゼロ埋め**
+- アブレーション検証では人口あり（RMSE=0.3266）と人口なし（RMSE=0.3271）がほぼ同等
+- 解釈性と将来拡張のため、人口を含む全特徴量版を採用
+
+### 2段階学習モードの需要特徴量
+
+`DEMAND_FEATURES` は現在以下の7項目です。
+
+- `population`
+- `pop_working`
+- `households`
+- `neighbor_avg_population`
+- `nearest_station_passengers`
+- `land_price`
+- `nearest_station_distance`
 
 ---
 
-## 3. 昼間人口（Daytime Population）の扱いについて
+## 3. 昼間人口の扱い
 
-現在のシステムでは、「昼間人口」そのものを直接的な特徴量としては**使用していません**。
+MLモデルでは人口系特徴量を使用します。昼間人口は `daytime_population` カラムが存在すれば、ルールベーススコアリング側で総人口より優先して需要計算に使える設計を維持しています。
 
-### 理由と代替手法
-* e-Statから取得しているのは「国勢調査（居住地ベースのデータ）」のみであるためです。本格的な昼間人口をAPIで自動取得するには経済センサス等の別統計を組み込む必要があります。
-* 代替指標（プロキシ）として、**`pop_working`（15～64歳の生産年齢人口）**の特徴量を使い、そこに最寄り駅の乗降客数（`nearest_station_passengers`）や商業集積度（`commercial_density_rank`）を相互作用させることで、ビジネス活動層やオフィス街のランチ需要をモデルに擬似的に推測させています。
-
-### 将来の拡張性
-ルールベースのスコアリング計算式（`src/analyze/scoring.py`）の中には、「もし `daytime_population` というカラムが存在すれば、総人口よりも優先してそちらを需要のベースにする」という拡張用の分岐ロジックが既に組み込まれています。e-Stat連携機能（`estat.py`）をアップデートして経済センサスデータを追加取得できるようにすれば、即座にシステム全体が昼間人口ベースのさらに高精度な判定に切り替わるように設計されています。
+### 現在の整理
+- **MLモデル**: 人口・世帯・人口比率・近隣人口を使用する
+- **スコアリング系ロジック**: `daytime_population` を将来利用可能な拡張ポイントとして維持
+- **e-Stat / 経済センサス連携**: 今後の拡張候補

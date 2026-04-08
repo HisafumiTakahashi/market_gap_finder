@@ -595,7 +595,7 @@ def build_approach_slide(prs: Presentation) -> None:
 
     # 左カード: 特徴量（入力）
     add_rect(slide, Inches(0.55), Inches(2.85), Inches(5.95), Inches(2.3), GRAY_CARD)
-    add_card_title(slide, Inches(0.85), Inches(3.05), Inches(3.4), "説明変数（28特徴量）", color=GREEN)
+    add_card_title(slide, Inches(0.85), Inches(3.05), Inches(3.4), "説明変数（26特徴量）", color=GREEN)
     add_paragraphs(
         slide,
         Inches(0.85),
@@ -604,7 +604,7 @@ def build_approach_slide(prs: Presentation) -> None:
         Inches(1.4),
         [
             "人口・世帯構成（11）、競合環境（4）、駅アクセス（3）",
-            "地価・Google評価（4）、ジャンル関連（4）、交互作用（2）",
+            "地価・Google評価（3）、ジャンル関連（5）",
         ],
         font_size=15,
         bullet=True,
@@ -657,18 +657,18 @@ def build_feature_slide(prs: Presentation) -> None:
         Inches(12.2),
         Inches(4.7),
         [
-            ["カテゴリ", "個数", "具体例", "何を表すか", "スコア計算"],
-            ["人口", "7", "総人口、働く世代、高齢者、単身世帯…", "お客さんの数", "★人口"],
-            ["人口比率", "4", "労働人口率、高齢者率、単身率…", "街の住民構成", ""],
-            ["競合環境", "4", "他ジャンル店舗数、飽和度、近隣平均…", "ライバルの多さ", "★4個全て"],
-            ["駅アクセス", "3", "最寄駅距離、乗降客数、アクセス指数", "人の流れ", ""],
-            ["地価・評価", "4", "地価、Google評価、レビュー数…", "エリアの格", "★Google評価"],
-            ["ジャンル関連", "6", "ジャンル種別、多様性、集中度…", "飲食バリエーション", "★集中度"],
+            ["カテゴリ", "個数", "具体例", "何を表すか"],
+            ["人口", "7", "総人口、労働人口、成人、高齢者、世帯数、単身世帯、若年単身", "お客さんの数"],
+            ["人口比率", "4", "労働人口率、高齢者率、単身率、若年単身率", "街の住民構成"],
+            ["競合環境", "4", "他ジャンル店舗数、商業密度ランク、近隣平均店舗数、飽和度", "ライバルの多さ"],
+            ["駅アクセス", "3", "最寄駅距離、乗降客数、アクセス指数", "人の流れ"],
+            ["地価・評価", "3", "地価、Google平均評価、店あたりレビュー数", "エリアの格"],
+            ["ジャンル関連", "5", "ジャンル種別、多様性、集中度(HHI)、近隣平均人口、Google密度", "飲食バリエーション"],
         ],
         font_size=11,
-        col_widths=[Inches(2.0), Inches(0.9), Inches(4.0), Inches(2.1), Inches(2.0)],
+        col_widths=[Inches(1.8), Inches(0.8), Inches(7.0), Inches(2.6)],
     )
-    add_textbox(slide, Inches(0.65), Inches(6.45), Inches(12.0), Inches(0.35), "補足: MLは28特徴量を使用（人口系含む）。人口欠損10.1%はゼロ埋め。Optuna 100 trialでチューニング済み。", font_size=14, color=MUTED)
+    add_textbox(slide, Inches(0.65), Inches(6.45), Inches(12.0), Inches(0.35), "補足: MLは26特徴量を使用（人口系含む）。人口欠損10.1%はゼロ埋め。Optuna 100 trialでチューニング済み。", font_size=14, color=MUTED)
 
 
 def build_accuracy_slide(prs: Presentation) -> None:
@@ -854,7 +854,7 @@ def build_vibe_slide(prs: Presentation) -> None:
         Inches(5.2),
         Inches(2.7),
         [
-            "6種API + 28特徴量ML + 5エリア対応ダッシュボードを一人で構築",
+            "6種API + 26特徴量ML + 5エリア対応ダッシュボードを一人で構築",
             "知らなかった手法をAIが提案→知識の補完",
             "設計→実装→テストのサイクルが速く回せた",
         ],

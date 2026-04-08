@@ -123,14 +123,6 @@ def prepare_features(df: pd.DataFrame, target_mode: str = "raw") -> tuple[pd.Dat
         work["genre_encoded"] = work[CATEGORICAL_FEATURE].astype(dtype).cat.codes
         feature_cols.append("genre_encoded")
 
-    if "land_price" in feature_cols and "saturation_index" in feature_cols:
-        work["price_x_saturation"] = work["land_price"] * work["saturation_index"]
-        feature_cols.append("price_x_saturation")
-
-    if "population" in feature_cols and "nearest_station_distance" in feature_cols:
-        work["pop_x_station_dist"] = work["population"] * work["nearest_station_distance"]
-        feature_cols.append("pop_x_station_dist")
-
     return work[feature_cols].copy(), target
 
 

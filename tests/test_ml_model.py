@@ -58,23 +58,20 @@ class TestPrepareFeatures:
             "reviews_per_shop",
             "google_density",
             "genre_encoded",
-            "price_x_saturation",
-            "pop_x_station_dist",
         }.issubset(features.columns)
         assert "pop_x_genre" not in features.columns
         assert "neighbor_pop_x_genre" not in features.columns
+        assert "price_x_saturation" not in features.columns
+        assert "pop_x_station_dist" not in features.columns
         assert features.loc[0, "other_genre_count"] == pytest.approx(np.log1p(3))
         assert features.loc[1, "google_avg_rating"] == pytest.approx(0.0)
         assert target.iloc[0] == pytest.approx(np.log1p(2))
 
-    def test_interaction_feature_values(self, ml_df: pd.DataFrame) -> None:
+    def test_interaction_features_are_not_generated(self, ml_df: pd.DataFrame) -> None:
+        """交互作用特徴量が生成されないことを検証する。"""
         features, _ = prepare_features(ml_df)
-        assert features.loc[0, "price_x_saturation"] == pytest.approx(
-            features.loc[0, "land_price"] * features.loc[0, "saturation_index"]
-        )
-        assert features.loc[0, "pop_x_station_dist"] == pytest.approx(
-            features.loc[0, "population"] * features.loc[0, "nearest_station_distance"]
-        )
+        assert "price_x_saturation" not in features.columns
+        assert "pop_x_station_dist" not in features.columns
 
     def test_prepare_features_residual_mode(self, ml_df: pd.DataFrame) -> None:
         features, target = prepare_features(ml_df, target_mode="residual")

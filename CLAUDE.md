@@ -95,7 +95,7 @@ PYTHONPATH=. python scripts/xxx.py --tag tokyo
 
 - **目的**: 飲食チェーン本部向けに「需要高 × 競合少」のエリア×ジャンルを特定する出店意思決定支援システム
 - **対象エリア**: tokyo / osaka / nagoya / fukuoka / sapporo（5エリア）
-- **対象ジャンル**: izakaya / italian / chinese / yakiniku / cafe / ramen / washoku / curry / other
+- **対象ジャンル**: izakaya / italian / chinese / yakiniku / cafe / ramen / washoku / other（8ジャンル。`GENRE_MAPPING` には `curry` も定義されているが、HotPepper Gourmet API に「カレー」単独ジャンルが存在しないため実データ上は0件）
 - **メッシュ設計**: JIS 4分の1メッシュ（250m, 10桁）
 - **ML モデル**: LightGBM、5-Fold CV R²=0.797、LOAO R²=0.73〜0.82
 

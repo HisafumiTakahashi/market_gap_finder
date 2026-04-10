@@ -12,7 +12,7 @@
 - **5エリア対応**: tokyo / osaka / nagoya / fukuoka / sapporo
 - **e-Stat**: ページネーション対応済み。全7人口・世帯カテゴリ（4分の1メッシュ 250m）取得可能
 - **Google Places**: 4エリア取得済み（sapporo は Google データなし）
-- **ジャンル**: izakaya / italian / chinese / yakiniku / cafe / ramen / washoku / curry / other
+- **ジャンル**: izakaya / italian / chinese / yakiniku / cafe / ramen / washoku / other（8ジャンル。`curry` は `GENRE_MAPPING` に定義はあるが HotPepper 実データに該当なし）
 
 ### MLモデル性能
 | 指標 | 値 |

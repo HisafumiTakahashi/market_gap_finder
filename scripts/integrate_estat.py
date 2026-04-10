@@ -241,7 +241,7 @@ def main() -> int:
             mesh1_codes=mesh1_codes,
             skip_fetch=args.skip_fetch,
         )
-        population_df, fallback_residuals = normalize_population_df(population_raw_df)
+        population_df, _ = normalize_population_df(population_raw_df)
         logger.info("Normalized population mesh rows: %d", len(population_df))
 
         integrated_df = mesh_agg_df.merge(population_df, on="jis_mesh", how="left")
@@ -250,24 +250,19 @@ def main() -> int:
                 integrated_df[column] = pd.NA
             integrated_df[column] = pd.to_numeric(integrated_df[column], errors="coerce")
 
-        if fallback_residuals:
-            mesh3_codes = integrated_df["jis_mesh"].astype(str).str[:8]
-            total_filled = 0
-            total_missing = 0
-            for column in POPULATION_METRICS.values():
-                missing_mask = integrated_df[column].isna()
-                total_missing += int(missing_mask.sum())
-                if not missing_mask.any():
-                    continue
-                fallback_map = fallback_residuals.get(column, {})
-                fallback_values = mesh3_codes.loc[missing_mask].map(fallback_map)
-                integrated_df.loc[missing_mask, column] = fallback_values.values
-                total_filled += int(fallback_values.notna().sum())
+        # 欠損率を表示
+        total_rows = len(integrated_df)
+        for column in POPULATION_METRICS.values():
+            missing_count = int(integrated_df[column].isna().sum())
+            rate = missing_count / total_rows * 100 if total_rows > 0 else 0
             logger.info(
-                "Fallback demographic fill: %d/%d metric cells filled from parent mesh averages",
-                total_filled,
-                total_missing,
+                "Population missing rate: %s = %d/%d (%.1f%%)",
+                column, missing_count, total_rows, rate,
             )
+
+        # ゼロ埋め（fallback不使用）
+        for column in POPULATION_METRICS.values():
+            integrated_df[column] = integrated_df[column].fillna(0)
 
         logger.info("Adding station, passenger, and land-price features")
         station_df = load_station_cache(args.tag)

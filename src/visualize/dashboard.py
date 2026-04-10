@@ -23,6 +23,7 @@ from src.analyze.scoring import (
     compute_opportunity_score_v2,
     compute_opportunity_score_v3b,
     compute_opportunity_score_v4,
+    compute_opportunity_score_v5,
     generate_reason,
 )
 
@@ -182,15 +183,6 @@ def create_marker_map(df: pd.DataFrame, top_n: int = 20) -> folium.Map:
         if "gap_count" in plot_df.columns and pd.notna(row.get("gap_count")):
             gap_count = pd.to_numeric(pd.Series([row.get("gap_count", 0.0)]), errors="coerce").fillna(0.0).iloc[0]
             popup_lines.append(f"ギャップ: {gap_count:.1f}")
-        if "gap_reliability" in plot_df.columns and pd.notna(row.get("gap_reliability")):
-            reliability_desc = {
-                "high": "高（統計的に有意な出店余地）",
-                "medium": "中（余地ありだが統計的に不確実）",
-                "low": "低（出店余地なし）",
-            }
-            rel = str(row["gap_reliability"])
-            popup_lines.append(f"予測信頼度: {reliability_desc.get(rel, rel)}")
-
         for col, label, fmt in (
             ("genre_diversity", "ジャンル多様性", "d"),
             ("genre_hhi", "ジャンルHHI", ".3f"),
@@ -251,16 +243,7 @@ def _filter_genre(df: pd.DataFrame, selected_genre: str) -> pd.DataFrame:
     return df
 
 
-def _filter_reliability(df: pd.DataFrame, reliability: str) -> pd.DataFrame:
-    if reliability != "__all__" and "gap_reliability" in df.columns:
-        if reliability == "high":
-            return df[df["gap_reliability"] == "high"]
-        if reliability == "high_medium":
-            return df[df["gap_reliability"].isin(["high", "medium"])]
-    return df
-
-
-def _load_and_score(tag: str = "result", version: str = "v4") -> pd.DataFrame:
+def _load_and_score(tag: str = "result", version: str = "v5") -> pd.DataFrame:
     csv_path = settings.PROCESSED_DATA_DIR / f"{tag}_integrated.csv"
     if csv_path.exists():
         try:
@@ -271,13 +254,25 @@ def _load_and_score(tag: str = "result", version: str = "v4") -> pd.DataFrame:
                 return compute_opportunity_score_v2(df)
             if version == "v3":
                 return compute_opportunity_score_v3b(add_all_features(df))
+            if version == "v5":
+                df = add_all_features(df)
+                ml_gap_path = settings.PROCESSED_DATA_DIR / f"{tag}_ml_gap.csv"
+                if ml_gap_path.exists():
+                    ml_df = pd.read_csv(ml_gap_path)
+                    ml_mesh_col = _mesh_col(ml_df)
+                    merge_cols = [col for col in (ml_mesh_col, "unified_genre", "market_gap", "predicted_count", "gap_count") if col in ml_df.columns]
+                    df_mesh_col = _mesh_col(df)
+                    if {ml_mesh_col, "unified_genre", "market_gap"}.issubset(merge_cols) and df_mesh_col in df.columns:
+                        df = df.merge(ml_df[merge_cols], left_on=[df_mesh_col, "unified_genre"], right_on=[ml_mesh_col, "unified_genre"], how="left")
+                        return compute_opportunity_score_v5(df, ml_gap=df["market_gap"])
+                return compute_opportunity_score_v5(df)
             # v4
             df = add_all_features(df)
             ml_gap_path = settings.PROCESSED_DATA_DIR / f"{tag}_ml_gap.csv"
             if ml_gap_path.exists():
                 ml_df = pd.read_csv(ml_gap_path)
                 ml_mesh_col = _mesh_col(ml_df)
-                merge_cols = [col for col in (ml_mesh_col, "unified_genre", "market_gap", "predicted_count", "gap_count", "gap_std", "gap_ci_lower", "gap_ci_upper", "gap_reliability") if col in ml_df.columns]
+                merge_cols = [col for col in (ml_mesh_col, "unified_genre", "market_gap", "predicted_count", "gap_count") if col in ml_df.columns]
                 df_mesh_col = _mesh_col(df)
                 if {ml_mesh_col, "unified_genre", "market_gap"}.issubset(merge_cols) and df_mesh_col in df.columns:
                     df = df.merge(ml_df[merge_cols], left_on=[df_mesh_col, "unified_genre"], right_on=[ml_mesh_col, "unified_genre"], how="left")
@@ -297,6 +292,8 @@ def _load_and_score(tag: str = "result", version: str = "v4") -> pd.DataFrame:
             return compute_opportunity_score_v2(aggregated_df)
         if version == "v3":
             return compute_opportunity_score_v3b(add_all_features(aggregated_df))
+        if version == "v5":
+            return compute_opportunity_score_v5(add_all_features(aggregated_df))
         return compute_opportunity_score_v4(add_all_features(aggregated_df))
     except Exception:
         logger.exception("Failed to load or score aggregated data: %s", csv_path)
@@ -316,7 +313,7 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
 
     def _get_filtered_data(area_tag: str, version: str, selected_genre: str, top_n: int | None = None) -> pd.DataFrame:
         resolved_tag = area_tag or tag
-        resolved_version = version or "v4"
+        resolved_version = version or "v5"
         if resolved_tag == "__all__":
             frames: list[pd.DataFrame] = []
             for current_tag in available_tags:
@@ -336,7 +333,7 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
             return filtered_df.nlargest(top_n, "opportunity_score")
         return filtered_df
 
-    init_data = _get_data(selected_tag, "v4")
+    init_data = _get_data(selected_tag, "v5")
     genre_options = [{"label": "\u5168\u30b8\u30e3\u30f3\u30eb", "value": "__all__"}]
     if "unified_genre" in init_data.columns:
         genre_values = init_data["unified_genre"].dropna().astype(str).sort_values().unique().tolist()
@@ -366,12 +363,13 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
                             dcc.Dropdown(
                                 id="score-version",
                                 options=[
+                                    {"label": "v5 (ML Gap のみ)", "value": "v5"},
                                     {"label": "v4 (ML+v3bアンサンブル)", "value": "v4"},
                                     {"label": "v3b (特徴量強化)", "value": "v3"},
                                     {"label": "v2 (人口ベース)", "value": "v2"},
                                     {"label": "v1 (基本ベース)", "value": "v1"},
                                 ],
-                                value="v4",
+                                value="v5",
                                 clearable=False,
                             ),
                         ],
@@ -398,22 +396,6 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
                             ),
                         ],
                         style={"flex": "1", "minWidth": "200px"},
-                    ),
-                    html.Div(
-                        [
-                            html.Label("予測信頼度"),
-                            dcc.Dropdown(
-                                id="reliability-filter",
-                                options=[
-                                    {"label": "すべて", "value": "__all__"},
-                                    {"label": "高+中（出店余地あり）", "value": "high_medium"},
-                                    {"label": "高のみ（統計的に有意）", "value": "high"},
-                                ],
-                                value="__all__",
-                                clearable=False,
-                            ),
-                        ],
-                        style={"flex": "1", "minWidth": "220px"},
                     ),
                 ],
                 style={"display": "flex", "gap": "16px", "flexWrap": "wrap"},
@@ -447,7 +429,7 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
         Input("area-selector", "value"),
     )
     def _update_genre_options(area_tag: str) -> tuple[list[dict], str]:
-        df = _get_filtered_data(area_tag or tag, "v4", "__all__")
+        df = _get_filtered_data(area_tag or tag, "v5", "__all__")
         options = [{"label": "\u5168\u30b8\u30e3\u30f3\u30eb", "value": "__all__"}]
         if "unified_genre" in df.columns:
             for g in sorted(df["unified_genre"].dropna().astype(str).unique()):
@@ -461,7 +443,6 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
         Input("genre-filter", "value"),
         Input("top-n", "value"),
         Input("map-mode", "value"),
-        Input("reliability-filter", "value"),
     )
     def _update_map(
         area_tag: str,
@@ -469,13 +450,11 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
         selected_genre: str,
         top_n: int,
         map_mode: str,
-        reliability: str,
     ) -> str:
         if area_tag == "__all__":
-            filtered_df = _get_filtered_data(area_tag, score_version or "v4", selected_genre, top_n=top_n or 20)
+            filtered_df = _get_filtered_data(area_tag, score_version or "v5", selected_genre, top_n=top_n or 20)
         else:
-            filtered_df = _get_filtered_data(area_tag or tag, score_version or "v4", selected_genre)
-        filtered_df = _filter_reliability(filtered_df, reliability)
+            filtered_df = _get_filtered_data(area_tag or tag, score_version or "v5", selected_genre)
 
         center_lat, center_lng = _resolve_map_center(_coerce_map_frame(filtered_df))
         if area_tag == "__all__":
@@ -494,23 +473,20 @@ def build_dash_app(tag: str = "result", available_tags: list[str] | None = None)
             Input("score-version", "value"),
             Input("genre-filter", "value"),
             Input("top-n", "value"),
-            Input("reliability-filter", "value"),
         )
         def _update_ranking_table(
             area_tag: str,
             score_version: str,
             selected_genre: str,
             top_n: int,
-            reliability: str,
         ) -> tuple[list[dict[str, object]], list[dict[str, str]]]:
             effective_top_n = top_n or 20
             filtered_df = _get_filtered_data(
                 area_tag or tag,
-                score_version or "v4",
+                score_version or "v5",
                 selected_genre,
                 top_n=effective_top_n if area_tag == "__all__" else None,
             )
-            filtered_df = _filter_reliability(filtered_df, reliability)
             base_columns = [
                 "\u9806\u4f4d",
                 "\u30b8\u30e3\u30f3\u30eb",

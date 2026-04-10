@@ -405,3 +405,16 @@ def compute_opportunity_score_v4(df: pd.DataFrame, ml_gap: pd.Series | None = No
     out["ml_gap_rank_score"] = ml_rank
     out["opportunity_score"] = 0.6 * v3b_rank + 0.4 * ml_rank
     return out
+
+
+def compute_opportunity_score_v5(df: pd.DataFrame, ml_gap: pd.Series | None = None) -> pd.DataFrame:
+    """ML予測Gapのみでスコアリング（v3bアンサンブルなし）。"""
+    out = df.copy()
+    if ml_gap is None:
+        out["opportunity_score"] = 0.0
+        return out
+
+    ml_gap_series = pd.to_numeric(ml_gap.reindex(out.index), errors="coerce").fillna(0.0)
+    out["market_gap"] = ml_gap_series
+    out["opportunity_score"] = _rank_normalize(ml_gap_series)
+    return out
